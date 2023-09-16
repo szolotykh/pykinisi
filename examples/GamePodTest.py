@@ -1,11 +1,11 @@
 from __future__ import print_function
 from inputs import get_gamepad
 import time
-from Controller import *
+from pykinisi import *
 import sys
 
 speed = 50
-controller = Controller()
+controller = KinisiController()
 
 def main():
     if(len(sys.argv) < 2):
@@ -31,10 +31,10 @@ def main():
                     continue
 
                 direction = event.state == -1
-                controller.SetMotorSpeed(Motor0, direction, speed)
-                controller.SetMotorSpeed(Motor1, direction, speed)
-                controller.SetMotorSpeed(Motor2, not direction, speed)
-                controller.SetMotorSpeed(Motor3, not direction, speed)
+                controller.SetMotorSpeed(MotorIndex.Motor0, direction, speed)
+                controller.SetMotorSpeed(MotorIndex.Motor1, direction, speed)
+                controller.SetMotorSpeed(MotorIndex.Motor2, not direction, speed)
+                controller.SetMotorSpeed(MotorIndex.Motor3, not direction, speed)
 
             if("ABS_HAT0X" in event.code):
                 print(event.ev_type, event.code, event.state)
@@ -43,10 +43,10 @@ def main():
                     continue
 
                 direction = event.state == -1
-                controller.SetMotorSpeed(Motor0, direction, speed)
-                controller.SetMotorSpeed(Motor1, not direction, speed)
-                controller.SetMotorSpeed(Motor2, not direction, speed)
-                controller.SetMotorSpeed(Motor3, direction, speed)
+                controller.SetMotorSpeed(MotorIndex.Motor0, direction, speed)
+                controller.SetMotorSpeed(MotorIndex.Motor1, not direction, speed)
+                controller.SetMotorSpeed(MotorIndex.Motor2, not direction, speed)
+                controller.SetMotorSpeed(MotorIndex.Motor3, direction, speed)
 
             if("ABS_HAT0" in event.code):
                 print(event.ev_type, event.code, event.state)
