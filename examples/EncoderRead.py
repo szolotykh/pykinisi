@@ -8,8 +8,8 @@ from Core import *
 controller = InitTest()
 
 # Encoder test
-encoder = EncoderIndex.Encoder1
-controller.InitializeEncoder(encoder)
+encoder = EncoderIndex.Encoder0
+controller.initialize_encoder(encoder)
 while(True):
     value = controller.get_encoder_value(encoder)
     print(int.from_bytes(value, "little"))

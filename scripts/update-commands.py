@@ -4,8 +4,8 @@ import os
 import shutil
 
 
-files = ['https://raw.githubusercontent.com/szolotykh/kinisi-motor-controller-firmware/command-script/tools/commands_generator/generator.py',
-         'https://raw.githubusercontent.com/szolotykh/kinisi-motor-controller-firmware/command-script/commands.json']
+files = ['https://raw.githubusercontent.com/szolotykh/kinisi-motor-controller-firmware/main/tools/commands_generator/generator.py',
+         'https://raw.githubusercontent.com/szolotykh/kinisi-motor-controller-firmware/main/commands.json']
 
 shutil.rmtree('./tmp', ignore_errors=True)
 os.mkdir('./tmp')
