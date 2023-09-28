@@ -3,9 +3,10 @@ import subprocess
 import os
 import shutil
 
+branch = 'main'
 
-files = ['https://raw.githubusercontent.com/szolotykh/kinisi-motor-controller-firmware/main/tools/commands_generator/generator.py',
-         'https://raw.githubusercontent.com/szolotykh/kinisi-motor-controller-firmware/main/commands.json']
+files = [f'https://raw.githubusercontent.com/szolotykh/kinisi-motor-controller-firmware/{branch}/tools/commands_generator/generator.py',
+         f'https://raw.githubusercontent.com/szolotykh/kinisi-motor-controller-firmware/{branch}/commands.json']
 
 shutil.rmtree('./tmp', ignore_errors=True)
 os.mkdir('./tmp')
