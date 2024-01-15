@@ -26,7 +26,7 @@ pip install -e .
 Update KinisiCommands.py file:
 ```bash
 cd scripts
-python generate_commands.py
+python update_commands.py
 ```
 
 ## Links

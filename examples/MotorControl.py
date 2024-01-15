@@ -11,7 +11,7 @@ motorIndex = MotorIndex.Motor0
 speed1 = 40
 speed2 = 80
 
-controller.initialize_motor(motorIndex)
+controller.initialize_motor(motorIndex, False)
 
 # Set motor speed to speed1
 controller.set_motor_speed(motorIndex, True, speed1)

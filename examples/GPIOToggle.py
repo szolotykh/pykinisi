@@ -12,4 +12,5 @@ controller.initialize_gpio_pin(pin, GPIOMode.OUTPUT)
 
 while(True):
     controller.toggle_gpio_pin_state(pin)
+    print("Toggled GPIO1 pin state")
     time.sleep(1) # 1000ms

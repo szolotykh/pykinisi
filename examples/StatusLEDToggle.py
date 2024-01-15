@@ -9,5 +9,5 @@ from Core import *
 controller = InitTest()
 
 while(True):
-    controller.toggle_status_led()
+    controller.toggle_status_led_state()
     time.sleep(0.1) # 100ms

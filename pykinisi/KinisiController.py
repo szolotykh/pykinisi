@@ -68,11 +68,11 @@ class KinisiController(KinisiCommands):
         return super().set_motor_target_velocity(motorIndex, direction, speed)
 
     # Motors
-    def initialoze_motor_all(self):
-        self.initialize_motor(MotorIndex.Motor0)
-        self.initialize_motor(MotorIndex.Motor1)
-        self.initialize_motor(MotorIndex.Motor2)
-        self.initialize_motor(MotorIndex.Motor3)
+    def initialoze_motor_all(self, is_reversed:bool = False):
+        self.initialize_motor(MotorIndex.Motor0, is_reversed)
+        self.initialize_motor(MotorIndex.Motor1, is_reversed)
+        self.initialize_motor(MotorIndex.Motor2, is_reversed)
+        self.initialize_motor(MotorIndex.Motor3, is_reversed)
 
     def stop_motor(self, index):
         self.set_motor_speed(index, True, 0)

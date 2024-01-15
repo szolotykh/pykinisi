@@ -1,6 +1,8 @@
 # Filename: VelocityMotorController.py
 # Description: Example of velocity motor controller
 
+# IN DEVELOPMENT
+"""
 import time
 from pykinisi import *
 from examples.Core import *
@@ -13,9 +15,9 @@ targetDirection = True
 motorIndex = MotorIndex.Motor0
 
 # Blink status LED
-controller.toggle_status_led()
+controller.toggle_status_led_state()
 time.sleep(1)
-controller.toggle_status_led()
+controller.toggle_status_led_state()
 time.sleep(1)
 
 # Set motor controller
@@ -28,3 +30,4 @@ time.sleep(5)
 
 # Delete motor controller
 controller.delete_motor_controller(motorIndex)
+"""
