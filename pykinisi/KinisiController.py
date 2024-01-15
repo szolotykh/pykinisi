@@ -19,6 +19,28 @@ class EncoderIndex:
     Encoder2 = 2
     Encoder3 = 3
 
+class GPIOIndex:
+    GPIO0 = 0
+    GPIO1 = 1
+    GPIO2 = 2
+    GPIO3 = 3
+    GPIO4 = 4
+    GPIO5 = 5
+    GPIO6 = 6
+    GPIO7 = 7
+    GPIO8 = 8
+    GPIO9 = 9
+
+class GPIOMode:
+    INPUT = 0
+    INPUT_PULLUP = 1
+    INPUT_NOPULL = 2
+    OUTPUT = 3
+
+class State:
+    LOW = 0
+    HIGH = 1
+
 class KinisiController(KinisiCommands):
     def connect(self, port):
         try:
@@ -46,11 +68,11 @@ class KinisiController(KinisiCommands):
         return super().set_motor_target_velocity(motorIndex, direction, speed)
 
     # Motors
-    def initialoze_motor_all(self):
-        self.initialize_motor(MotorIndex.Motor0)
-        self.initialize_motor(MotorIndex.Motor1)
-        self.initialize_motor(MotorIndex.Motor2)
-        self.initialize_motor(MotorIndex.Motor3)
+    def initialoze_motor_all(self, is_reversed:bool = False):
+        self.initialize_motor(MotorIndex.Motor0, is_reversed)
+        self.initialize_motor(MotorIndex.Motor1, is_reversed)
+        self.initialize_motor(MotorIndex.Motor2, is_reversed)
+        self.initialize_motor(MotorIndex.Motor3, is_reversed)
 
     def stop_motor(self, index):
         self.set_motor_speed(index, True, 0)

@@ -1,6 +1,12 @@
-__version__ = '1.0.0'
+__version__ = '0.0.2'
 __author__ = 'Sergey Zolotykh'
-__all__ = ['KinisiController', 'MotorIndex', 'EncoderIndex']
+__all__ = [
+    'KinisiController',
+    'MotorIndex',
+    'EncoderIndex',
+    'GPIOIndex',
+    'GPIOMode',
+    'State']
 
 from .KinisiCommands import *
 from .KinisiController import *

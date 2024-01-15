@@ -1,8 +1,9 @@
 from setuptools import setup
+
 from setuptools import find_packages
 
 setup(name='pykinisi',
-      version='0.0.1',
+      version='0.0.2',
       description='Python package for Kinisi Controller',
       url='https://github.com/szolotykh/pykinisi',
       author='Sergey Zolotykh',
@@ -16,5 +17,6 @@ setup(name='pykinisi',
                   'Programming Language :: Python :: 3',
                   'License :: OSI Approved :: MIT License',
                   'Operating System :: OS Independent'
-                   ]
+                   ],
+      long_description=open('README.md').read(),
       )
