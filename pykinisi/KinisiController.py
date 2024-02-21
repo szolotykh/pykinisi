@@ -5,8 +5,6 @@
 import serial
 from .KinisiCommands import *
 
-SpeedResolution = 840
-
 class MotorIndex:
     Motor0 = 0
     Motor1 = 1
@@ -56,26 +54,13 @@ class KinisiController(KinisiCommands):
 
     def read(self, length: int) -> bytearray:
         return self.serial.read(length)
-    
-    def set_motor_speed(self, motorIndex: MotorIndex, direction: bool, speed: int):
-        speed = int(speed * SpeedResolution / 100)
-        direction = int(direction)
-        return super().set_motor_speed(motorIndex, direction, speed)
-    
-    def set_motor_target_velocity(self, motorIndex:MotorIndex, direction:int, speed:int):
-        speed = int(speed * SpeedResolution / 100)
-        direction = int(direction)
-        return super().set_motor_target_velocity(motorIndex, direction, speed)
 
     # Motors
-    def initialoze_motor_all(self, is_reversed:bool = False):
-        self.initialize_motor(MotorIndex.Motor0, is_reversed)
-        self.initialize_motor(MotorIndex.Motor1, is_reversed)
-        self.initialize_motor(MotorIndex.Motor2, is_reversed)
-        self.initialize_motor(MotorIndex.Motor3, is_reversed)
-
-    def stop_motor(self, index):
-        self.set_motor_speed(index, True, 0)
+    def initialoze_motor_all(self, is_reversed = [False, False, False, False]):
+        self.initialize_motor(MotorIndex.Motor0, is_reversed[0])
+        self.initialize_motor(MotorIndex.Motor1, is_reversed[1])
+        self.initialize_motor(MotorIndex.Motor2, is_reversed[2])
+        self.initialize_motor(MotorIndex.Motor3, is_reversed[3])
 
     def stop_motor_all(self):
         self.stop_motor(MotorIndex.Motor0)
