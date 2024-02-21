@@ -10,7 +10,7 @@ speed1 = 80
 speed2 = 40
 
 # Initialize all motors
-controller.initialoze_motor_all(False)
+controller.initialoze_motor_all([False, False, False, False])
 
 # Set motors speed to speed1
 controller.set_motor_speed(MotorIndex.Motor0, speed1)
