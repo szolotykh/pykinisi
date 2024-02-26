@@ -10,19 +10,22 @@ controller = InitTest()
 motorIndex = MotorIndex.Motor0
 speed1 = 40
 speed2 = 80
+speed3 = -40
 
-controller.initialize_motor(motorIndex, False)
+is_reverse = False
+
+controller.initialize_motor(motorIndex, is_reverse)
 
 # Set motor speed to speed1
-controller.set_motor_speed(motorIndex, True, speed1)
+controller.set_motor_speed(motorIndex, speed1)
 time.sleep(5)
 
 # Set motor speed to speed2
-controller.set_motor_speed(motorIndex, True, speed2)
+controller.set_motor_speed(motorIndex, speed2)
 time.sleep(5)
 
 # Set motor speed to speed1 in reverse
-controller.set_motor_speed(motorIndex, False, speed1)
+controller.set_motor_speed(motorIndex, speed3)
 time.sleep(5)
 
 # Stop motor
