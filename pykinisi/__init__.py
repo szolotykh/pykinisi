@@ -1,4 +1,4 @@
-__version__ = '1.0.4'
+__version__ = '1.0.4.1'
 __author__ = 'Sergey Zolotykh'
 __all__ = [
     'KinisiController',
