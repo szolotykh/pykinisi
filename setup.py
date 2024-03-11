@@ -3,7 +3,7 @@ from setuptools import setup
 from setuptools import find_packages
 
 setup(name='pykinisi',
-      version='1.0.4',
+      version='1.0.4.1',
       description='Python package for Kinisi Controller',
       url='https://github.com/szolotykh/pykinisi',
       author='Sergey Zolotykh',
