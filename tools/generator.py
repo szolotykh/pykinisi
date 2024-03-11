@@ -35,6 +35,32 @@ def file_header(version, comment_char="//"):
 {comment_char} Version: {version}
 {comment_char} ----------------------------------------------------------------------------\n\n"""
 
+# Generates imports list
+def import_packages():
+    result = "import struct\n"
+    result += "import threading\n"
+    result += "from functools import wraps\n"
+    result += "\n"
+    return result
+
+# Generates multithreading decorator
+def multithreading_decorator():
+    return """
+# This decorator is used to make sure that the method is thread safe.
+# Parameters:
+#   func: The function to be wrapped.
+def thread_safe_method(func):
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        if not hasattr(self, '_lock'):
+            raise AttributeError("Class must have '_lock' attribute for thread_safe_method decorator to work.")
+        with self._lock:
+            return func(self, *args, **kwargs)
+    return wrapper
+
+"""
+
+
 # Get object name in pascal case
 def get_object_name(object_data):
     # Convert string to pascal case Example motor_controller_state -> MotorControllerState
@@ -110,16 +136,21 @@ def generate_python_code(commands_data):
     function_code = ''
     class_code = '''
 class KinisiCommands:
+    # Constructor
+    def __init__(self):
+        self._lock = threading.Lock()
+
     # Write command to serial interface
-    def write(self, msg: bytearray):
+    def _write(self, msg: bytearray):
         """Abstract method to write the byte message to the serial interface."""
         raise NotImplementedError("This method should be overridden by subclass.")
     
     # Read command from serial interface
-    def read(self, length: int) -> bytearray:
+    def _read(self, length: int) -> bytearray:
         """Abstract method to read a specified number of bytes from the serial interface."""
         raise NotImplementedError("This method should be overridden by subclass.")
-    '''
+
+'''
 
     # Generate constants for command codes
     for cmd in commands_data['commands']:
@@ -134,6 +165,7 @@ class KinisiCommands:
         for prop in cmd.get('properties', []):
             func_body += f"    #   {prop['name']}: {prop['description']}\n"
         func_args = ", ".join([f"{prop['name']}:{type_mapping[prop['type']]}" for prop in cmd.get('properties', [])])
+        func_body += f"    @thread_safe_method\n"
         func_body += f"    def {cmd['command'].lower()}(self{', ' if len(func_args) > 0 else ''}{func_args}):\n"
         func_body += f"        msg = {cmd['command']}.to_bytes(1, 'little')"
         for prop in cmd.get('properties', []):
@@ -146,16 +178,16 @@ class KinisiCommands:
         func_body += "\n"
         func_body += f"        length = len(msg)\n"
         func_body += f"        msg = length.to_bytes(1, 'little') + msg\n"
-        func_body += f"        self.write(msg)\n"
+        func_body += f"        self._write(msg)\n"
         if 'response' in cmd:
             # Response length
             if cmd['response']['type'] == 'object':
                 func_body += f"        response_length = {get_object_name(cmd['response'])}.get_size()\n"
-                func_body += f"        result =  self.read(response_length)\n"
+                func_body += f"        result =  self._read(response_length)\n"
                 func_body += f"        return {get_object_name(cmd['response'])}.decode(result)\n"
             else:
                 func_body += f"        response_length = {type_to_size_map[cmd['response']['type']]}\n"
-                func_body += f"        result =  self.read(response_length)\n"
+                func_body += f"        result =  self._read(response_length)\n"
                 if cmd['response']['type'] == 'double':
                     func_body += f"        return struct.unpack('<d', result)[0]\n"
                 else:
@@ -167,9 +199,10 @@ class KinisiCommands:
     class_code += function_code
 
     result = file_header(commands_data['version'], "#")
-    result += "import struct\n\n"
-    result += objects
+    result += import_packages()
     result += constant_code
+    result += multithreading_decorator()
+    result += objects
     result += class_code
 
     return result

@@ -4,6 +4,7 @@ from pykinisi import *
 def InitTest():
     if(len(sys.argv) < 2):
         print(F"Incorrect number of arguments. {sys.argv[0]} <COM Port.>")
+        exit()
 
     port = sys.argv[1]
     controller = KinisiController()

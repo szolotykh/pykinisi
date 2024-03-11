@@ -1,6 +1,6 @@
 # pykinisi
 Python package for kinisi motor controller. This package is used to control the kinisi motor controller via serial interface.\
-Description of the commands can be found in [Kinisi Motion Controller framework documentation](https://raw.githubusercontent.com/szolotykh/kinisi-motor-controller-firmware/command-script/commands.md)
+Description of the commands can be found in [Kinisi Motion Controller framework documentation](https://github.com/szolotykh/kinisi-motor-controller-firmware/blob/main/README.md)
 
 ## Installation
 Install pykinisi with pip:
