@@ -40,6 +40,15 @@ class State:
     HIGH = 1
 
 class KinisiController(KinisiCommands):
+    # Constructor
+    def __init__(self):
+        super().__init__()
+        self.serial = None
+
+    # This method is used to connect to the motor controller.
+    # Parameters:
+    #   port: The port to connect to. Example: /dev/ttyUSB0
+    @thread_safe_method
     def connect(self, port):
         try:
             self.serial =  serial.Serial(port, 115200, timeout = 1)
@@ -49,25 +58,26 @@ class KinisiController(KinisiCommands):
         except:
             return False
 
-    def write(self, msg: bytearray):
+    # This method is used to write data to the serial port.
+    # Parameters:
+    #   msg: The message to be sent.
+    def _write(self, msg: bytearray):
         self.serial.write(msg)
 
-    def read(self, length: int) -> bytearray:
+    # This method is used to read data from the serial port.
+    # Parameters:
+    #   length: The number of bytes to be read.
+    def _read(self, length: int) -> bytearray:
         return self.serial.read(length)
 
-    # Motors
-    def initialoze_motor_all(self, is_reversed = [False, False, False, False]):
-        self.initialize_motor(MotorIndex.Motor0, is_reversed[0])
-        self.initialize_motor(MotorIndex.Motor1, is_reversed[1])
-        self.initialize_motor(MotorIndex.Motor2, is_reversed[2])
-        self.initialize_motor(MotorIndex.Motor3, is_reversed[3])
+    # This method is used disconnect from the motor controller.
+    @thread_safe_method
+    def disconnect(self):
+        if self.serial:
+            self.serial.close()
+            self.serial = None
 
-    def stop_motor_all(self):
-        self.stop_motor(MotorIndex.Motor0)
-        self.stop_motor(MotorIndex.Motor1)
-        self.stop_motor(MotorIndex.Motor2)
-        self.stop_motor(MotorIndex.Motor3)
-
+    # Destructor
     def __del__(self):
         if self.serial:
             self.serial.close()
