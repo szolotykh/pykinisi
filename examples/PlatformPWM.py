@@ -19,6 +19,9 @@ if platform_type == "omni":
         is_reversed_0=False,
         is_reversed_1=False,
         is_reversed_2=False,
+        is_encoder_reversed_0=False,
+        is_encoder_reversed_1=False,
+        is_encoder_reversed_2=False,
         wheels_diameter=1,
         robot_radius=1,
         encoder_resolution=0
@@ -29,6 +32,10 @@ elif platform_type == "mecanum":
         is_reversed_1=False,
         is_reversed_2=False,
         is_reversed_3=False,
+        is_encoder_reversed_0=False,
+        is_encoder_reversed_1=False,
+        is_encoder_reversed_2=False,
+        is_encoder_reversed_3=False,
         length=0.5, # 50 cm 
         width=0.4, # 40 cm
         wheels_diameter=0.1, # 10 cm
