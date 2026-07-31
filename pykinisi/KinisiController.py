@@ -51,11 +51,9 @@ class KinisiController(KinisiCommands):
     @thread_safe_method
     def connect(self, port):
         try:
-            self.serial =  serial.Serial(port, 115200, timeout = 1)
+            self.serial = serial.Serial(port, 115200, timeout = 1)
             return True
-        except serial.SerialException:
-            return False
-        except:
+        except (serial.SerialException, ValueError, OSError):
             return False
 
     # This method is used to write data to the serial port.
