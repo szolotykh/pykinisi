@@ -16,7 +16,7 @@ controller.initialize_motor_controller(
     is_reversed = False, # Motor direction
     encoder_index = EncoderIndex.Encoder0, # Encoder index
     is_encoder_reversed = False, # Encoder direction (independent of motor; flip if the controller runs away)
-    encoder_resolution = 1992.6, # ticks per revolution
+    encoder_resolution = 1425.1, # ticks per revolution
     kp = 1, # Proportional gain
     ki = 0.1, # Integral gain
     kd = 0, # Derivative gain

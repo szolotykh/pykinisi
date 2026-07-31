@@ -24,7 +24,7 @@ if platform_type == "omni":
         is_encoder_reversed_2=False,
         wheels_diameter=0.1, # 10 cm
         robot_radius=0.15, # 15 cm
-        encoder_resolution=1992.6, # ticks per revolution
+        encoder_resolution=1425.1, # ticks per revolution
     )
 elif platform_type == "mecanum":
     controller.initialize_mecanum_platform(
@@ -39,7 +39,7 @@ elif platform_type == "mecanum":
         length= 0.5, # 50 cm 
         width= 0.4, # 40 cm
         wheels_diameter=0.1, # 10 cm
-        encoder_resolution=1992.6, # ticks per revolution
+        encoder_resolution=1425.1, # ticks per revolution
     )
 else:
     print("Unknown platform type")
