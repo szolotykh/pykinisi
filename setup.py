@@ -1,9 +1,13 @@
+# Filename: setup.py
+# Description: Package metadata using the same SDK version sent in INIT.
+from pathlib import Path
+from runpy import run_path
 from setuptools import setup
 
 from setuptools import find_packages
 
 setup(name='pykinisi',
-      version='1.0.6',
+      version=run_path(str(Path(__file__).parent / 'pykinisi' / '_version.py'))['__version__'],
       description='Python package for Kinisi Controller',
       url='https://github.com/szolotykh/pykinisi',
       author='Sergey Zolotykh',
@@ -12,6 +16,7 @@ setup(name='pykinisi',
       zip_safe=False,
       packages=find_packages(),
       install_requires=['pyserial'],
+      python_requires='>=3.8',
       keywords=['motor controller', 'hardware', 'robotics', 'kinisi', 'kinisi controller'],
       classifiers=['Development Status :: 3 - Alpha',
                   'Programming Language :: Python :: 3',

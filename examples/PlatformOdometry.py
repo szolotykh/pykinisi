@@ -1,67 +1,86 @@
-# Filename: PlatformOdometry.py
-# Description: Example of platform odometry. Script will capture odometry data for 10 seconds.
+"""Capture timestamped platform odometry for ten seconds using messages API v2."""
 
 import time
-from pykinisi import *
-from Core import *
 
-controller = InitTest()
+from pykinisi import ControllerError, ErrorCode
+from Core import InitTest
 
-result = controller.toggle_status_led_state()
-time.sleep(0.5) # 1s
-result = controller.toggle_status_led_state()
 
-# Initialize platform
-platform_type = "omni"
+def main():
+    """Initialize a platform, poll its measured pose, then stop and disconnect."""
+    controller = InitTest()
+    platform_initialized = False
+    odometry_started = False
 
-if platform_type == "omni":
-    controller.initialize_omni_platform(
-        is_reversed_0=False,
-        is_reversed_1=False,
-        is_reversed_2=False,
-        is_encoder_reversed_0=False,
-        is_encoder_reversed_1=False,
-        is_encoder_reversed_2=False,
-        wheels_diameter=0.1, # 10 cm
-        robot_radius=0.15, # 15 cm
-        encoder_resolution=0
-    )
-elif platform_type == "mecanum":
-    controller.initialize_mecanum_platform(
-        is_reversed_0=False,
-        is_reversed_1=False,
-        is_reversed_2=False,
-        is_reversed_3=False,
-        is_encoder_reversed_0=False,
-        is_encoder_reversed_1=False,
-        is_encoder_reversed_2=False,
-        is_encoder_reversed_3=False,
-        length= 0.5, # 50 cm
-        width= 0.4, # 40 cm
-        wheels_diameter=0.1, # 10 cm
-        encoder_resolution=0
-    )
-else:
-    print("Unknown platform type")
-    exit()
+    try:
+        platform_type = "omni"
+        # Example timer ticks per wheel revolution: adjust for your encoder/gearing.
+        encoder_resolution = 2048
 
-time.sleep(1) # 1s
+        if platform_type == "omni":
+            controller.initialize_omni_platform(
+                is_reversed_0=False,
+                is_reversed_1=False,
+                is_reversed_2=False,
+                is_encoder_reversed_0=False,
+                is_encoder_reversed_1=False,
+                is_encoder_reversed_2=False,
+                wheels_diameter=0.1,  # 10 cm
+                robot_radius=0.15,  # 15 cm
+                encoder_resolution=encoder_resolution,
+            )
+        elif platform_type == "mecanum":
+            controller.initialize_mecanum_platform(
+                is_reversed_0=False,
+                is_reversed_1=False,
+                is_reversed_2=False,
+                is_reversed_3=False,
+                is_encoder_reversed_0=False,
+                is_encoder_reversed_1=False,
+                is_encoder_reversed_2=False,
+                is_encoder_reversed_3=False,
+                length=0.5,  # 50 cm
+                width=0.4,  # 40 cm
+                wheels_diameter=0.1,  # 10 cm
+                encoder_resolution=encoder_resolution,
+            )
+        else:
+            raise ValueError(f"Unknown platform type: {platform_type}")
 
-# Start odometry
-controller.start_platform_odometry()
+        platform_initialized = True
+        controller.start_platform_odometry()
+        odometry_started = True
+        controller.set_platform_velocity(40, 0, 0)
 
-# Set three platform velocity components
-controller.set_platform_velocity(40, 0, 0)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            try:
+                sample = controller.get_platform_odometry()
+            except ControllerError as error:
+                if error.error_code != ErrorCode.SAMPLE_NOT_AVAILABLE:
+                    raise
+                # Starting/resetting odometry invalidates the previous sample.
+                time.sleep(0.05)
+                continue
 
-# Capture odometry data for 10 seconds
-start_time = time.time()
-while time.time() - start_time < 10:
-    odometry_data = controller.get_platform_odometry()
-    print(f"X: {round(odometry_data.x, 2)} m, Y: {round(odometry_data.y, 2)} m, Theta: {round(odometry_data.t, 2)} rad")
-    time.sleep(0.5)
+            mode = "unix_us" if sample.clock_mode == 1 else "uptime_us"
+            print(
+                f"{mode}: {sample.timestamp_us}, quality: {sample.clock_quality}, "
+                f"X: {sample.x:.2f} m, Y: {sample.y:.2f} m, Theta: {sample.t:.2f} rad"
+            )
+            time.sleep(0.5)
+    finally:
+        # Attempt each cleanup step even if an earlier command fails.
+        try:
+            if platform_initialized:
+                controller.set_platform_velocity(0, 0, 0)
+        finally:
+            try:
+                if odometry_started:
+                    controller.stop_platform_odometry()
+            finally:
+                controller.disconnect()
 
-# Stop odometry
-controller.stop_platform_odometry()
 
-# Stop platform
-controller.set_platform_velocity(0, 0, 0)
+if __name__ == "__main__":
+    main()
