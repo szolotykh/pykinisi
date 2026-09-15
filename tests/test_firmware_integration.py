@@ -175,7 +175,7 @@ class FirmwareIntegrationTests(unittest.TestCase):
         patch = mock.patch.object(TRANSPORT_MODULE.serial, "Serial", return_value=serial)
         patch.start()
         self.addCleanup(patch.stop)
-        client = KinisiController(request_timeout=1.0, init_timeout=3.0, wall_clock=wall_clock)
+        client = KinisiController(request_timeout=1.0, init_timeout=3.0, wall_clock=wall_clock, heartbeat_timeout_ms=None)
         self.addCleanup(client.disconnect)
         self.assertTrue(client.connect("firmware-fixture"), repr(client.last_error))
         return client, serial
@@ -185,7 +185,7 @@ class FirmwareIntegrationTests(unittest.TestCase):
         client, serial = self.connect_client()
         self.assertTrue(client.ready)
         self.assertEqual((client.board_info.protocol_major, client.board_info.protocol_minor,
-                          client.board_info.protocol_patch), (2, 0, 0))
+                          client.board_info.protocol_patch), (2, 1, 0))
         self.assertEqual(serial.sent_count(INIT), 1)
         self.assertEqual(serial.sent_count(TIME_SYNC_REQUEST), 3)
         self.assertEqual(serial.sent_count(READY), 1)
