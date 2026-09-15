@@ -8,7 +8,7 @@ import struct
 from enum import IntEnum
 
 
-PROTOCOL_VERSION = (2, 0, 0)
+PROTOCOL_VERSION = (2, 1, 0)
 
 INITIALIZE_MOTOR = 0x01
 SET_MOTOR_SPEED = 0x02
@@ -56,6 +56,14 @@ TIME_SYNC_RESPONSE = 0x72
 READY = 0x73
 SET_TIME_SYNC_INTERVAL = 0x74
 GET_TIME_STATUS = 0x75
+PING = 0x76
+SET_HEARTBEAT_CONFIG = 0x77
+GET_HEARTBEAT_CONFIG = 0x78
+SUBSCRIBE_ODOMETRY = 0x79
+UNSUBSCRIBE_ODOMETRY = 0x7A
+ENCODER_ODOMETRY_EVENT = 0x7B
+PLATFORM_ODOMETRY_EVENT = 0x7C
+POLL_TELEMETRY = 0x7D
 
 
 class ErrorCode(IntEnum):
@@ -341,6 +349,34 @@ class PlatformOdometrySample:
         return cls(*_unpack_payload('<QBBddd', payload))
 
 
+class HeartbeatConfig:
+    """Per-connection watchdog settings.
+
+    enabled: Enable monitoring; disabled initially for compatibility.
+    timeout_ms: Monotonic receive timeout. Default 500 ms; send PING after at most timeout/5
+    of idle time (100 ms with the default).
+    """
+
+    def __init__(self, enabled: bool, timeout_ms: int):
+        """Store the fields of one controller payload."""
+        self.enabled = enabled
+        self.timeout_ms = timeout_ms
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 5
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<?I', self.enabled, self.timeout_ms))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'HeartbeatConfig':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<?I', payload))
+
+
 class KinisiCommands:
     """Public command methods shared by transports implementing protocol v2."""
 
@@ -359,7 +395,8 @@ class KinisiCommands:
         motor_index: The index of the motor to initialize.
         is_reversed: Whether or not the motor is reversed.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, MOTOR_OWNED.
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, MOTOR_OWNED,
+        INIT_REQUIRED.
         """
         payload = struct.pack('<B?', motor_index, is_reversed)
         result = self._request(INITIALIZE_MOTOR, payload, 0)
@@ -373,7 +410,7 @@ class KinisiCommands:
         pwm: The speed of the motor.
 
         Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, MOTOR_OWNED,
-        MOTOR_NOT_INITIALIZED.
+        MOTOR_NOT_INITIALIZED, INIT_REQUIRED.
         """
         payload = struct.pack('<Bd', motor_index, pwm)
         result = self._request(SET_MOTOR_SPEED, payload, 0)
@@ -436,7 +473,8 @@ class KinisiCommands:
         integral_limit: Integral limit of PID controller. The value can not be negative or
         zero. If the value is zero or negative, the integral limit is disabled.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, MOTOR_OWNED.
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, MOTOR_OWNED,
+        INIT_REQUIRED.
         """
         payload = struct.pack('<B?B?ddddd', motor_index, is_reversed, encoder_index, is_encoder_reversed, encoder_resolution, kp, ki, kd, integral_limit)
         result = self._request(INITIALIZE_MOTOR_CONTROLLER, payload, 0)
@@ -450,7 +488,7 @@ class KinisiCommands:
         speed: The speed of the motor.
 
         Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, MOTOR_OWNED,
-        CONTROLLER_NOT_INITIALIZED.
+        CONTROLLER_NOT_INITIALIZED, INIT_REQUIRED.
         """
         payload = struct.pack('<Bd', motor_index, speed)
         result = self._request(SET_MOTOR_TARGET_SPEED, payload, 0)
@@ -466,7 +504,8 @@ class KinisiCommands:
 
         motor_index: The index of the motor to reset the controller for.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, MOTOR_OWNED.
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, MOTOR_OWNED,
+        INIT_REQUIRED.
         """
         payload = struct.pack('<B', motor_index)
         result = self._request(RESET_MOTOR_CONTROLLER, payload, 0)
@@ -476,7 +515,7 @@ class KinisiCommands:
 
         motor_index: The index of the motor to get the state for.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR.
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED.
         """
         payload = struct.pack('<B', motor_index)
         result = self._request(GET_MOTOR_CONTROLLER_STATE, payload, MotorControllerState.get_size())
@@ -489,7 +528,8 @@ class KinisiCommands:
 
         motor_index: The index of the motor to delete the controller for.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, MOTOR_OWNED.
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, MOTOR_OWNED,
+        INIT_REQUIRED.
         """
         payload = struct.pack('<B', motor_index)
         result = self._request(DELETE_MOTOR_CONTROLLER, payload, 0)
@@ -507,7 +547,7 @@ class KinisiCommands:
         frequency: The controller update frequency in Hz. Valid range 1 to 1000 Hz; values
         outside are clamped, and 0 is ignored.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR.
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED.
         """
         payload = struct.pack('<H', frequency)
         result = self._request(SET_CONTROLLER_FREQUENCY, payload, 0)
@@ -516,7 +556,7 @@ class KinisiCommands:
         """This command retrieves the current global update frequency (in Hz) of the
         closed-loop motor controller task.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR.
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED.
         """
         payload = struct.pack('<')
         result = self._request(GET_CONTROLLER_FREQUENCY, payload, 2)
@@ -530,7 +570,7 @@ class KinisiCommands:
         negative or zero.
         is_reversed: Whether or not the encoder is reversed.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR.
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED.
         """
         payload = struct.pack('<Bd?', encoder_index, encoder_resolution, is_reversed)
         result = self._request(INITIALIZE_ENCODER, payload, 0)
@@ -541,7 +581,7 @@ class KinisiCommands:
         encoder_index: The index of the encoder to retrieve the value for.
 
         Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
-        ENCODER_NOT_INITIALIZED.
+        ENCODER_NOT_INITIALIZED, INIT_REQUIRED.
         """
         payload = struct.pack('<B', encoder_index)
         result = self._request(GET_ENCODER_VALUE, payload, 2)
@@ -563,7 +603,7 @@ class KinisiCommands:
 
         encoder_index: The index of the encoder to reset the odometry calculation for.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR.
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED.
         """
         payload = struct.pack('<B', encoder_index)
         result = self._request(RESET_ENCODER_ODOMETRY, payload, 0)
@@ -573,7 +613,7 @@ class KinisiCommands:
 
         encoder_index: The index of the encoder to stop the odometry calculation for.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR.
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED.
         """
         payload = struct.pack('<B', encoder_index)
         result = self._request(STOP_ENCODER_ODOMETRY, payload, 0)
@@ -597,12 +637,13 @@ class KinisiCommands:
         1000 Hz maximum is bounded by the 1 ms RTOS tick). The value is then quantized to
         the 1 ms RTOS tick (period_ms = 1000 / frequency), so effective frequencies are
         1000/N Hz. A value of 0 is invalid and ignored. Defaults to 20 Hz (50 ms) at
-        start-up.
+        start-up. Rejected if the resulting calculation period exceeds half of any active
+        subscription interval on either transport.
 
         frequency: The odometry update frequency in Hz. Valid range 1 to 1000 Hz; values
         outside are clamped, and 0 is ignored.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR.
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED.
         """
         payload = struct.pack('<H', frequency)
         result = self._request(SET_ODOMETRY_FREQUENCY, payload, 0)
@@ -611,7 +652,7 @@ class KinisiCommands:
         """This command retrieves the current global update frequency (in Hz) of the odometry
         task.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR.
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED.
         """
         payload = struct.pack('<')
         result = self._request(GET_ODOMETRY_FREQUENCY, payload, 2)
@@ -624,7 +665,7 @@ class KinisiCommands:
         mode: Set digital pin as input or output. Modes: 0 = INPUT_PULLDOWN, 1 =
         INPUT_PULLUP, 2 = INPUT_NOPULL, 3 = OUTPUT.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR.
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED.
         """
         payload = struct.pack('<BB', pin_number, mode)
         result = self._request(INITIALIZE_GPIO_PIN, payload, 0)
@@ -635,7 +676,7 @@ class KinisiCommands:
         pin_number: The number of the pin to set to a state.
         state: The state of the pin. 0 = LOW, 1 = HIGH.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR.
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED.
         """
         payload = struct.pack('<BB', pin_number, state)
         result = self._request(SET_GPIO_PIN_STATE, payload, 0)
@@ -645,7 +686,7 @@ class KinisiCommands:
 
         pin_number: The number of the pin to get the state for.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR.
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED.
         """
         payload = struct.pack('<B', pin_number)
         result = self._request(GET_GPIO_PIN_STATE, payload, 1)
@@ -656,7 +697,7 @@ class KinisiCommands:
 
         pin_number: The number of the pin to toggle.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR.
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED.
         """
         payload = struct.pack('<B', pin_number)
         result = self._request(TOGGLE_GPIO_PIN_STATE, payload, 0)
@@ -666,7 +707,7 @@ class KinisiCommands:
 
         state: The state of the status LED. 0 = OFF, 1 = ON.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR.
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED.
         """
         payload = struct.pack('<B', state)
         result = self._request(SET_STATUS_LED_STATE, payload, 0)
@@ -674,7 +715,7 @@ class KinisiCommands:
     def toggle_status_led_state(self) -> None:
         """This command toggles the status LED.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR.
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED.
         """
         payload = struct.pack('<')
         result = self._request(TOGGLE_STATUS_LED_STATE, payload, 0)
@@ -707,7 +748,7 @@ class KinisiCommands:
         encoder_resolution: Encoder resolution in ticks per revolution. The value can not be
         negative. If platform does not have encoders, the value should be set to zero.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR.
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED.
         """
         payload = struct.pack('<????????dddd', is_reversed_0, is_reversed_1, is_reversed_2, is_reversed_3, is_encoder_reversed_0, is_encoder_reversed_1, is_encoder_reversed_2, is_encoder_reversed_3, length, width, wheels_diameter, encoder_resolution)
         result = self._request(INITIALIZE_MECANUM_PLATFORM, payload, 0)
@@ -736,7 +777,7 @@ class KinisiCommands:
         encoder_resolution: Encoder resolution in ticks per revolution. The value can not be
         negative. If platform does not have encoders, the value should be set to zero.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR.
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED.
         """
         payload = struct.pack('<??????ddd', is_reversed_0, is_reversed_1, is_reversed_2, is_encoder_reversed_0, is_encoder_reversed_1, is_encoder_reversed_2, wheels_diameter, robot_radius, encoder_resolution)
         result = self._request(INITIALIZE_OMNI_PLATFORM, payload, 0)
@@ -761,7 +802,7 @@ class KinisiCommands:
         encoder_resolution: Encoder resolution in ticks per revolution. The value can not be
         negative. If platform does not have encoders, the value should be set to zero.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR.
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED.
         """
         payload = struct.pack('<????ddd', is_reversed_0, is_reversed_1, is_encoder_reversed_0, is_encoder_reversed_1, wheel_diameter, wheel_base, encoder_resolution)
         result = self._request(INITIALIZE_DIFFERENTIAL_PLATFORM, payload, 0)
@@ -774,7 +815,7 @@ class KinisiCommands:
         t: Theta component of platform velocity in PWM
 
         Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
-        PLATFORM_NOT_INITIALIZED.
+        PLATFORM_NOT_INITIALIZED, INIT_REQUIRED.
         """
         payload = struct.pack('<ddd', x, y, t)
         result = self._request(SET_PLATFORM_VELOCITY, payload, 0)
@@ -789,7 +830,7 @@ class KinisiCommands:
         zero. If the value is zero or negative, the integral limit is disabled.
 
         Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
-        PLATFORM_NOT_INITIALIZED.
+        PLATFORM_NOT_INITIALIZED, INIT_REQUIRED.
         """
         payload = struct.pack('<dddd', kp, ki, kd, integral_limit)
         result = self._request(START_PLATFORM_CONTROLLER, payload, 0)
@@ -802,7 +843,7 @@ class KinisiCommands:
         t: Theta component of platform velocity in radians per second
 
         Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
-        PLATFORM_NOT_INITIALIZED, CONTROLLER_NOT_INITIALIZED.
+        PLATFORM_NOT_INITIALIZED, CONTROLLER_NOT_INITIALIZED, INIT_REQUIRED.
         """
         payload = struct.pack('<ddd', x, y, t)
         result = self._request(SET_PLATFORM_TARGET_VELOCITY, payload, 0)
@@ -810,7 +851,7 @@ class KinisiCommands:
     def get_platform_current_velocity(self) -> PlatformVelocity:
         """This command gets the current velocity of the platform in meters per second.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR.
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED.
         """
         payload = struct.pack('<')
         result = self._request(GET_PLATFORM_CURRENT_VELOCITY, payload, PlatformVelocity.get_size())
@@ -836,7 +877,7 @@ class KinisiCommands:
     def reset_platform_odometry(self) -> None:
         """This command resets the odometry calculation for the platform.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR.
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED.
         """
         payload = struct.pack('<')
         result = self._request(RESET_PLATFORM_ODOMETRY, payload, 0)
@@ -844,7 +885,7 @@ class KinisiCommands:
     def stop_platform_odometry(self) -> None:
         """This command stops the odometry calculation for the platform.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR.
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED.
         """
         payload = struct.pack('<')
         result = self._request(STOP_PLATFORM_ODOMETRY, payload, 0)
@@ -922,9 +963,83 @@ class KinisiCommands:
     def get_time_status(self) -> TimeStatus:
         """Read this connection's clock mode, quality, interval and age.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR.
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED.
         """
         payload = struct.pack('<')
         result = self._request(GET_TIME_STATUS, payload, TimeStatus.get_size())
         return TimeStatus.decode(result)
+
+    def ping(self) -> None:
+        """Refresh connection activity and receive an empty ACK. Any structurally valid client
+        command also refreshes activity; malformed frames do not.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED.
+        """
+        payload = struct.pack('<')
+        result = self._request(PING, payload, 0)
+
+    def set_heartbeat_config(self, enabled: bool, timeout_ms: int) -> None:
+        """Configure this session watchdog after READY. Timeout coasts all motors, clears
+        subscriptions and requires a new INIT before further operations. Disabling also
+        removes this session subscriptions. INIT resets to disabled, 500 ms.
+
+        enabled: Enable monitoring; disabled initially for compatibility.
+        timeout_ms: Monotonic receive timeout. Default 500 ms; send PING after at most
+        timeout/5 of idle time (100 ms with the default).
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED,
+        CLOCK_NOT_READY.
+        """
+        payload = struct.pack('<?I', enabled, timeout_ms)
+        result = self._request(SET_HEARTBEAT_CONFIG, payload, 0)
+
+    def get_heartbeat_config(self) -> HeartbeatConfig:
+        """Read this session watchdog configuration.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED.
+        """
+        payload = struct.pack('<')
+        result = self._request(GET_HEARTBEAT_CONFIG, payload, HeartbeatConfig.get_size())
+        return HeartbeatConfig.decode(result)
+
+    def subscribe_odometry(self, source: int, interval_ms: int) -> None:
+        """Publish the latest completed sample using the requested scheduling interval without
+        rounding it to calculation ticks. Delivery is subject to transport capacity and task
+        scheduling. Requires READY, an enabled heartbeat and running odometry. Replaces an
+        existing subscription for this source. Interval must be at least twice the
+        calculation period. No renewal is needed. Stop/reset of calculation pauses samples
+        until fresh measurements exist; unsubscribe, INIT, disconnect or watchdog timeout
+        removes subscriptions.
+
+        source: 0 through 3 select encoder odometry; 4 selects platform odometry.
+        interval_ms: Delivery interval, independent of calculation scheduling.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED,
+        CLOCK_NOT_READY, ODOMETRY_NOT_INITIALIZED.
+        """
+        payload = struct.pack('<BI', source, interval_ms)
+        result = self._request(SUBSCRIBE_ODOMETRY, payload, 0)
+
+    def unsubscribe_odometry(self, source: int) -> None:
+        """Remove this source subscription; succeeds if already absent. Does not stop odometry
+        calculation.
+
+        source: 0 through 3 select encoder odometry; 4 selects platform odometry.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED.
+        """
+        payload = struct.pack('<B', source)
+        result = self._request(UNSUBSCRIBE_ODOMETRY, payload, 0)
+
+    def poll_telemetry(self) -> None:
+        """I2C master service request. Allows at most one due odometry event before its empty
+        ACK, so the master can clock out telemetry without waiting indefinitely when no
+        sample is available. USB clients receive events automatically and do not need this
+        command.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED,
+        CLOCK_NOT_READY.
+        """
+        payload = struct.pack('<')
+        result = self._request(POLL_TELEMETRY, payload, 0)
 

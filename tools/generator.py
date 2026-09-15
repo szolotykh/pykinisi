@@ -22,6 +22,11 @@ type_to_size_map = {name: struct.calcsize("<" + fmt) for name, fmt in TYPE_FORMA
 type_mapping = {name: "bool" if name == "bool" else "float" if name == "double" else "int"
                 for name in TYPE_FORMATS}
 DIRECTIONS = {"client_to_controller", "controller_to_client"}
+# These messages support handwritten session behavior, independently of schema version.
+SESSION_COMMANDS = {
+    "PING", "SET_HEARTBEAT_CONFIG", "SUBSCRIBE_ODOMETRY", "UNSUBSCRIBE_ODOMETRY",
+    "ENCODER_ODOMETRY_EVENT", "PLATFORM_ODOMETRY_EVENT",
+}
 
 
 def get_object_name(object_data):
@@ -74,8 +79,8 @@ def _response_object(response, objects):
 def validate_schema(data):
     """Check protocol version, framing, message directions, and codec references.
 
-    Fail before writing output so malformed or protocol-v1 schemas cannot replace
-    a working protocol-v2 module with incompatible generated code.
+    Accept evolving v2 schemas while preserving the heartbeat and telemetry
+    definitions used by the handwritten transport.
     """
     if not isinstance(data, dict):
         raise ValueError("Command schema must be an object")
@@ -116,6 +121,9 @@ def validate_schema(data):
     commands = data.get("commands")
     if not isinstance(commands, list) or not commands:
         raise ValueError("Command schema must contain a nonempty commands array")
+    missing = SESSION_COMMANDS - {cmd.get("command") for cmd in commands}
+    if missing:
+        raise ValueError("Schema is missing runtime commands: " + ", ".join(sorted(missing)))
     names, codes = set(), set()
     for cmd in commands:
         name = cmd.get("command")

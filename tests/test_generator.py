@@ -35,7 +35,7 @@ def schema_fixture():
     ]
     fields = [{"name": name, "type": kind, "description": name} for name, kind in sample_fields]
     return {
-        "version": "2.0.0",
+        "version": "2.1.0",
         "header": {"properties": [
             {"name": "length", "type": "uint8_t"},
             {"name": "command", "type": "uint8_t"},
@@ -61,6 +61,11 @@ def schema_fixture():
              "properties": [{"name": "host_receive_us", "type": "uint64_t"},
                             {"name": "host_send_us", "type": "uint64_t"}]},
             {"command": "READY", "code": "0x73", "direction": "controller_to_client"},
+            *[{"command": name, "code": code, "description": name,
+               "direction": "controller_to_client" if name.endswith("_EVENT") else "client_to_controller"}
+              for name, code in [("PING", "0x76"), ("SET_HEARTBEAT_CONFIG", "0x77"),
+                                 ("SUBSCRIBE_ODOMETRY", "0x79"), ("UNSUBSCRIBE_ODOMETRY", "0x7A"),
+                                 ("ENCODER_ODOMETRY_EVENT", "0x7B"), ("PLATFORM_ODOMETRY_EVENT", "0x7C")]],
         ],
     }
 
@@ -148,7 +153,7 @@ class GeneratedCodecTests(unittest.TestCase):
         for name in ("ERROR", "TIME_SYNC_REQUEST", "TIME_SYNC_RESPONSE", "READY"):
             self.assertIn(name, self.namespace)
             self.assertFalse(hasattr(self.client, name.lower()))
-        self.assertEqual(self.namespace["PROTOCOL_VERSION"], (2, 0, 0))
+        self.assertEqual(self.namespace["PROTOCOL_VERSION"], (2, 1, 0))
         self.assertEqual(self.namespace["ErrorCode"].INVALID_ARGUMENT, 2)
         self.assertEqual(self.namespace["ERROR_DESCRIPTIONS"][2], "Invalid field.")
 
@@ -214,10 +219,29 @@ class SchemaValidationTests(unittest.TestCase):
             schema = Path(directory) / "schema.json"
             output = Path(directory) / "commands.py"
             output.write_text("preserved\n", encoding="utf-8")
-            schema.write_text('{"version": "1.4.0"}', encoding="utf-8")
-            with self.assertRaises(ValueError):
-                generator.generate(schema, output)
-            self.assertEqual(output.read_text(encoding="utf-8"), "preserved\n")
+            for version in ("1.4.0", "2.0.0"):
+                data = schema_fixture()
+                data["version"] = version
+                if version == "2.0.0":
+                    data["commands"] = [c for c in data["commands"] if c["command"] != "PING"]
+                schema.write_text(json.dumps(data), encoding="utf-8")
+                with self.subTest(version=version), self.assertRaises(ValueError):
+                    generator.generate(schema, output)
+                self.assertEqual(output.read_text(encoding="utf-8"), "preserved\n")
+
+    def test_new_versions_and_commands_are_generated(self):
+        """New v2 schemas add SDK methods without requiring a generator version edit."""
+        for version in ("2.1.1", "2.2.0", "2.10.0"):
+            data = schema_fixture()
+            data["version"] = version
+            data["commands"].append({"command": "GET_NEW_VALUE", "code": "0x60",
+                "direction": "client_to_controller", "description": "A future command.",
+                "response": {"name": "value", "type": "uint16_t", "direction": "controller_to_client"}})
+            namespace = generate_namespace(data)
+            client = recording_client(namespace)
+            client.reply = struct.pack("<H", 42)
+            self.assertEqual(client.get_new_value(), 42)
+            self.assertEqual(namespace["PROTOCOL_VERSION"], tuple(map(int, version.split('.'))))
 
     def test_generation_is_deterministic(self):
         """Regeneration has no timestamp or other machine-dependent content."""

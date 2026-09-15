@@ -2,7 +2,7 @@
 Python package for kinisi motor controller. This package is used to control the kinisi motor controller via serial interface.\
 Description of the commands can be found in [Kinisi Motion Controller framework documentation](https://github.com/szolotykh/kinisi-motor-controller-firmware/blob/main/README.md)
 
-This version uses messages API **2.0.0**, which is incompatible with API 1.x firmware and clients. Connecting exchanges board identity and completes clock setup before returning. See [initialization, time sync, and errors](docs/protocol-v2.md) for details.
+This version uses messages API **2.1.0**, which is incompatible with API 1.x firmware and clients. Connecting exchanges board identity and completes clock setup before returning. See [initialization, time sync, and errors](docs/protocol-v2.md) for details.
 
 ## Installation
 Install pykinisi with pip:

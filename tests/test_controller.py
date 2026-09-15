@@ -144,7 +144,7 @@ class Board:
                 return
             self.mode = payload[7] & 1
             self.initial_samples = 0
-            identity = struct.pack("<7BII", 1, 0, 3, 0, 2, 0, 0, 0x12345678, 0x90ABCDEF)
+            identity = struct.pack("<7BII", 1, 0, 3, 0, 2, 1, 0, 0x12345678, 0x90ABCDEF)
             self.transport.inject(frame(INIT, message_id, identity))
             if self.identity_only:
                 return
@@ -182,7 +182,7 @@ class ControllerTests(unittest.TestCase):
         """Install a fresh in-memory serial port without opening hardware."""
         self.transport = FakeSerial()
         self.board = Board(self.transport)
-        self.controller = KinisiController(request_timeout=0.25, init_timeout=0.5)
+        self.controller = KinisiController(request_timeout=0.25, init_timeout=0.5, heartbeat_timeout_ms=None)
         self.factory = patch.object(controller_module.serial, "Serial", return_value=self.transport)
         self.factory.start()
         self.addCleanup(self.factory.stop)
@@ -197,7 +197,7 @@ class ControllerTests(unittest.TestCase):
         self.transport.read_chunk = 1
         self.transport.write_chunk = 2
         self.connect()
-        self.assertEqual(self.board.init_payloads, [bytes([1, 2, 0, 0, 2, 0, 0, 1])])
+        self.assertEqual(self.board.init_payloads, [bytes([1, 2, 1, 0, 2, 1, 0, 3])])
         self.assertTrue(self.controller.ready)
         self.assertEqual(self.controller.clock_mode, ClockMode.WALL)
         self.assertEqual(self.controller.board_info.board_minor, 3)
@@ -400,7 +400,7 @@ class ControllerTests(unittest.TestCase):
                 """Send READY before identity, or after identity with the wrong mode."""
                 command, message_id = struct.unpack("<BH", request[1:4])
                 if mode == 0:
-                    identity = struct.pack("<7BII", 1, 0, 3, 0, 2, 0, 0, 0, 0)
+                    identity = struct.pack("<7BII", 1, 0, 3, 0, 2, 1, 0, 0, 0)
                     transport.inject(frame(command, message_id, identity))
                 transport.inject(frame(READY, message_id, bytes([mode])))
             transport.on_frame = malformed

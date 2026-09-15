@@ -13,7 +13,7 @@ __author__ = 'Sergey Zolotykh'
 
 __all__ = [
     'KinisiController', 'MotorIndex', 'EncoderIndex', 'GPIOIndex', 'GPIOMode', 'State',
-    'ClockMode', 'ClockQuality', 'ErrorCode', 'InitResponse', 'TimeStatus',
+    'ClockMode', 'ClockQuality', 'ErrorCode', 'InitResponse', 'TimeStatus', 'HeartbeatConfig',
     'EncoderOdometrySample', 'PlatformOdometrySample', 'KinisiError',
     'ConnectionClosedError', 'ProtocolError', 'RequestTimeoutError', 'ControllerError',
     '__version__',

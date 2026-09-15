@@ -15,6 +15,9 @@ from .KinisiCommands import (
     KinisiCommands, InitResponse, ErrorCode, PROTOCOL_VERSION, INIT, READY, ERROR,
     TIME_SYNC_REQUEST, TIME_SYNC_RESPONSE, START_ENCODER_ODOMETRY,
     GET_ENCODER_ODOMETRY, START_PLATFORM_ODOMETRY, GET_PLATFORM_ODOMETRY,
+    PING, SET_HEARTBEAT_CONFIG, SUBSCRIBE_ODOMETRY, UNSUBSCRIBE_ODOMETRY,
+    ENCODER_ODOMETRY_EVENT, PLATFORM_ODOMETRY_EVENT,
+    EncoderOdometrySample, PlatformOdometrySample,
 )
 from ._version import VERSION
 from .errors import ConnectionClosedError, ControllerError, KinisiError, ProtocolError, RequestTimeoutError
@@ -67,12 +70,13 @@ class _PendingRequest:
     payload: bytes = None
     error: Exception = None
     clock_mode: int = None
+    request_payload: bytes = b""
 
 
 class KinisiController(KinisiCommands):
     """A protocol-v2 serial client; disconnect or use a context manager when finished."""
 
-    def __init__(self, *, request_timeout=1.0, init_timeout=5.0, wall_clock=True):
+    def __init__(self, *, request_timeout=1.0, init_timeout=5.0, wall_clock=True, heartbeat_timeout_ms=500):
         """Configure finite command/setup deadlines and whether Unix time is available."""
         super().__init__()
         for name, value in (("request_timeout", request_timeout), ("init_timeout", init_timeout)):
@@ -81,6 +85,13 @@ class KinisiController(KinisiCommands):
         self.request_timeout = float(request_timeout)
         self.init_timeout = float(init_timeout)
         self.wall_clock = bool(wall_clock)
+        if heartbeat_timeout_ms is not None and (type(heartbeat_timeout_ms) is not int or not 100 <= heartbeat_timeout_ms <= 60000):
+            raise ValueError("heartbeat_timeout_ms must be 100..60000, or None to disable")
+        self.heartbeat_timeout_ms = heartbeat_timeout_ms
+        self._heartbeat_idle_s = None
+        self._heartbeat_thread = None
+        self._last_sent = 0
+        self._subscription_samples = {}
         self.serial = None
         self.last_error = None
         self.last_sync_error = None
@@ -125,8 +136,13 @@ class KinisiController(KinisiCommands):
                     self._reader = threading.Thread(target=self._reader_loop,
                         args=(transport, self._stop), name="pykinisi-reader", daemon=True)
                     self._reader.start()
-                # Python SDK, package version, required protocol, wall-clock capability only.
-                self.init(1, *VERSION, *PROTOCOL_VERSION, int(self.wall_clock))
+                # Advertise streaming support independently of wall-clock availability.
+                self.init(1, *VERSION, *PROTOCOL_VERSION, int(self.wall_clock) | 2)
+                if self.heartbeat_timeout_ms is not None:
+                    self.set_heartbeat_config(True, self.heartbeat_timeout_ms)
+                self._heartbeat_thread = threading.Thread(target=self._heartbeat_loop,
+                    args=(transport, self._stop), name="pykinisi-heartbeat", daemon=True)
+                self._heartbeat_thread.start()
                 return True
             except (KinisiError, serial.SerialException, ValueError, OSError) as error:
                 self.last_error = error
@@ -156,18 +172,20 @@ class KinisiController(KinisiCommands):
             if transport is None:
                 raise ConnectionClosedError("Connect before sending commands")
             if command in (START_ENCODER_ODOMETRY, GET_ENCODER_ODOMETRY,
-                           START_PLATFORM_ODOMETRY, GET_PLATFORM_ODOMETRY) and not self._ready:
+                           START_PLATFORM_ODOMETRY, GET_PLATFORM_ODOMETRY, SUBSCRIBE_ODOMETRY) and not self._ready:
                 raise ProtocolError("Odometry requires a completed INIT/READY exchange")
             if command == INIT and any(p.command == INIT for p in self._pending.values()):
                 raise ProtocolError("INIT is already in progress")
             message_id = self._next_id()
-            pending = _PendingRequest(command, response_length)
+            pending = _PendingRequest(command, response_length, request_payload=bytes(payload))
             if command == INIT:
                 if len(payload) != 8:
                     raise ProtocolError("INIT requires an eight-byte payload")
                 pending.clock_mode = int(bool(payload[7] & 1))
                 self._wall_clock_active = bool(payload[7] & 1)
                 self._ready = False
+                self._heartbeat_idle_s = None
+                self._subscription_samples.clear()
                 self.board_info = self.clock_mode = None
             self._pending[message_id] = pending
         try:
@@ -216,6 +234,8 @@ class KinisiController(KinisiCommands):
                 if not isinstance(written, int) or written <= 0 or written > len(frame) - offset:
                     raise ConnectionClosedError("Serial write did not make valid progress")
                 offset += written
+            with self._lock:
+                self._last_sent = time.monotonic()
         except Exception as error:
             # A partial outgoing frame cannot be safely retried on the same byte stream.
             failure = error if isinstance(error, KinisiError) else ConnectionClosedError(str(error))
@@ -226,6 +246,32 @@ class KinisiController(KinisiCommands):
         if failure is not None:
             self._fail_session(failure, transport)
             raise failure
+
+    def _heartbeat_loop(self, transport, stop):
+        """Send a correlated PING only when other outgoing traffic has been idle."""
+        while not stop.wait(0.005):
+            with self._lock:
+                interval = self._heartbeat_idle_s
+                due = (self.serial is transport and self._ready and interval is not None
+                       and time.monotonic() - self._last_sent >= interval)
+            if not due:
+                continue
+            try:
+                self.ping()
+            except Exception as error:
+                self._fail_session(error, transport)
+                return
+
+    def get_subscription_sample(self, source):
+        """Return the latest streamed sample (0..3 encoder, 4 platform), or None.
+
+        Samples replace earlier values in a bounded cache. Reading it never sends a
+        command or blocks the receive thread; each sample retains its measurement time.
+        """
+        if type(source) is not int or not 0 <= source <= 4:
+            raise ValueError("source must be 0..4")
+        with self._lock:
+            return self._subscription_samples.get(source)
 
     def _reader_loop(self, transport, stop):
         """Read frames across partial reads and service sync even while callers are idle."""
@@ -273,7 +319,22 @@ class KinisiController(KinisiCommands):
                     lambda: struct.pack("<QQ", received_us, time.time_ns() // 1000),
                     time.monotonic() + self.request_timeout)
             return
+        if command in (ENCODER_ODOMETRY_EVENT, PLATFORM_ODOMETRY_EVENT):
+            encoder = command == ENCODER_ODOMETRY_EVENT
+            if message_id or len(payload) != (19 if encoder else 34) or (encoder and payload[0] > 3):
+                raise ProtocolError("Malformed odometry event")
+            source = payload[0] if encoder else 4
+            sample = EncoderOdometrySample.decode(payload[1:]) if encoder else PlatformOdometrySample.decode(payload)
+            if sample.clock_mode not in (0, 1) or sample.clock_quality not in (1, 2):
+                raise ProtocolError("Invalid odometry event clock metadata")
+            with self._lock:
+                if self.serial is transport and self._ready:
+                    self._subscription_samples[source] = sample
+            return
         with self._lock:
+            # Recheck under the mutation lock: reconnect may have replaced this transport.
+            if self.serial is not transport:
+                return
             pending = self._pending.get(message_id)
             if command == ERROR:
                 if len(payload) != 2:
@@ -290,6 +351,8 @@ class KinisiController(KinisiCommands):
                 # A board reset or lost clock setup invalidates the old READY state.
                 if code in (ErrorCode.INIT_REQUIRED, ErrorCode.CLOCK_NOT_READY):
                     self._ready = False
+                    self._heartbeat_idle_s = None
+                    self._subscription_samples.clear()
                 pending.error = error
                 pending.event.set()
                 return
@@ -314,6 +377,15 @@ class KinisiController(KinisiCommands):
                 self.board_info = identity
                 pending.payload = payload
                 return # READY is the final response to INIT.
+            # Commit acknowledged settings in wire order before waking callers. Their
+            # scheduling order must not overwrite newer settings or a new session.
+            if command == SET_HEARTBEAT_CONFIG:
+                enabled, timeout_ms = struct.unpack("<BI", pending.request_payload)
+                self._heartbeat_idle_s = timeout_ms / 5000 if enabled else None
+                if not enabled:
+                    self._subscription_samples.clear()
+            elif command == UNSUBSCRIBE_ODOMETRY:
+                self._subscription_samples.pop(pending.request_payload[0], None)
             pending.payload = payload
             pending.event.set()
 
@@ -324,6 +396,8 @@ class KinisiController(KinisiCommands):
                 return
             self.serial = None
             self._ready = False
+            self._heartbeat_idle_s = None
+            self._subscription_samples.clear()
             self._stop.set()
             self.last_error = error
             for pending in self._pending.values():
@@ -349,6 +423,9 @@ class KinisiController(KinisiCommands):
         reader = self._reader
         if reader is not None and reader is not threading.current_thread():
             reader.join(timeout=self.request_timeout + 0.2)
+        heartbeat = self._heartbeat_thread
+        if heartbeat is not None and heartbeat is not threading.current_thread():
+            heartbeat.join(timeout=self.request_timeout + 0.2)
 
     def disconnect(self):
         """Cancel pending requests and stop the reader; this does not send motor commands."""

@@ -1,6 +1,6 @@
 # Messages API v2
 
-pykinisi uses messages API **2.0.0**. API 1.x firmware and clients are
+pykinisi uses messages API **2.1.0**. API 1.x firmware and clients are
 incompatible with the new framing and responses; update firmware and the SDK
 together. Existing motor and GPIO method arguments remain the same. Methods
 that set values now wait for the controller's acknowledgement and can raise a
@@ -142,9 +142,9 @@ new request. If all IDs have been retired or remain outstanding, reconnect to
 start a fresh session.
 
 The firmware's generated [command reference](https://github.com/szolotykh/kinisi-motor-controller-firmware/blob/main/commands.md)
-defines command arguments and their possible controller errors. This change
-implements initialization, ordinary request/response commands, and time sync;
-it does not add subscriptions or a motor-disconnect watchdog.
+defines command arguments and their possible controller errors. See
+[connection monitoring and streamed odometry](connection-monitoring.md) for
+heartbeat configuration, latest-sample access and subscription lifecycle.
 
 ## Development validation
 
