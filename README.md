@@ -2,7 +2,7 @@
 Python package for kinisi motor controller. This package is used to control the kinisi motor controller via serial interface.\
 Description of the commands can be found in [Kinisi Motion Controller framework documentation](https://github.com/szolotykh/kinisi-motor-controller-firmware/blob/main/README.md)
 
-This version uses messages API **2.3.1**, which is incompatible with API 1.x firmware and clients. Connecting exchanges board identity and completes clock setup before returning. See [initialization, time sync, and errors](docs/protocol-v2.md) for details.
+API v2 is incompatible with API v1. See [protocol details](docs/protocol-v2.md).
 
 ## Installation
 Install pykinisi with pip:
@@ -43,6 +43,8 @@ finally:
 ```
 
 ## More Examples
+See the [motor position](examples/MotorPositionController.py) and [platform position](examples/PlatformPositionController.py) examples for position control.
+
 There are several examples in the examples folder which show how to use the pykinisi package to control the kinisi motor controller.\
 Run the examples with:
 ```bash
@@ -73,25 +75,3 @@ Run tests from the project root with `python -m unittest discover -s tests`.
 - [Kinisi Motion Controller hardware](https://github.com/szolotykh/kinisi-motor-controller-board)
 - [JavaScipt package for kinisi motor controller](https://github.com/szolotykh/jskinisi)
 - [Python package for kinisi motor controller](https://github.com/szolotykh/pykinisi)
-
-## Velocity and position control (2.3.1)
-
-Both velocity initialization methods default `integral_limit` to **100 PWM
-percentage points** when omitted. Total PWM remains bounded to +/-100% with
-firmware anti-windup. Ki=0 or an integral limit of zero disables integration on
-firmware 2.3.1. Gains from earlier firmware must be retuned; the examples use
-Kp=1, Ki=1, Kd=0 only as starting values.
-
-Connections still accept protocol 2.1+. Position commands require 2.2+, and
-full position PID initialization requires 2.3+. Unsupported position calls are
-rejected locally before transmission. SDK version and minimum supported
-firmware protocol are separate.
-
-Initialize velocity control before position control. Motor position is
-continuous radians; platform position is world-frame x/y in meters and heading
-in radians. Position integral limits are velocity contributions (rad/s or m/s),
-not PWM limits. Reset changes the origin and clears the target. Velocity
-commands override position mode; stop/brake or reinitialization can require
-position setup again. See [motor](examples/MotorPositionController.py) and
-[platform](examples/PlatformPositionController.py) examples for initialization,
-reset, target and readback sequences.
