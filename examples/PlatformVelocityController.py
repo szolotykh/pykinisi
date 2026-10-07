@@ -6,6 +6,10 @@ from pykinisi import *
 from Core import *
 
 controller = InitTest()
+info = controller.board_info
+if (info.protocol_major, info.protocol_minor, info.protocol_patch) < (2, 3, 1):
+    controller.disconnect()
+    raise RuntimeError("These starting gains require firmware 2.3.1 or newer; retune for your motor.")
 
 result = controller.toggle_status_led_state()
 time.sleep(0.5) # 1s
@@ -48,9 +52,9 @@ else:
 # Set three platform velocity components
 controller.start_platform_controller(
     kp=1, # Proportional gain
-    ki=0.1, # Integral gain
+    ki=1, # Integral gain
     kd=0, # Derivative gain
-    integral_limit=30 # Absolute maximum value of integral value.
+    integral_limit=100 # Integral contribution limit in PWM percentage points.
 )
 
 print("Set platform target velocity to 0.4 m/s in x direction")

@@ -1,6 +1,6 @@
 # Messages API v2
 
-pykinisi uses messages API **2.1.0**. API 1.x firmware and clients are
+pykinisi uses messages API **2.3.1**. API 1.x firmware and clients are
 incompatible with the new framing and responses; update firmware and the SDK
 together. Existing motor and GPIO method arguments remain the same. Methods
 that set values now wait for the controller's acknowledgement and can raise a
@@ -155,3 +155,7 @@ and a host C compiler are available, the suite also builds its production protoc
 and time-sync code for Python/C interoperability tests. Set `CC` to the host GCC
 or Clang executable to enable those tests; otherwise they are skipped.
 Physical serial timing and behavior still require validation on a board.
+
+The generated command schema is 2.3.1, while INIT requests minimum protocol
+2.1.0. Position commands check the connected board version locally (2.2 for
+P-only position commands; 2.3 for position PID setup) and require READY.
