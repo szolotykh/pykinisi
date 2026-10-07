@@ -12,7 +12,7 @@ from enum import IntEnum
 import serial
 
 from .KinisiCommands import (
-    KinisiCommands, InitResponse, ErrorCode, PROTOCOL_VERSION, INIT, READY, ERROR,
+    KinisiCommands, InitResponse, ErrorCode, INIT, READY, ERROR,
     TIME_SYNC_REQUEST, TIME_SYNC_RESPONSE, START_ENCODER_ODOMETRY,
     GET_ENCODER_ODOMETRY, START_PLATFORM_ODOMETRY, GET_PLATFORM_ODOMETRY,
     PING, SET_HEARTBEAT_CONFIG, SUBSCRIBE_ODOMETRY, UNSUBSCRIBE_ODOMETRY,
@@ -20,7 +20,21 @@ from .KinisiCommands import (
     EncoderOdometrySample, PlatformOdometrySample,
 )
 from ._version import VERSION
+from .KinisiCommands import (
+    INITIALIZE_MOTOR_POSITION_CONTROLLER, RESET_MOTOR_POSITION, SET_MOTOR_POSITION,
+    GET_MOTOR_POSITION, INITIALIZE_PLATFORM_POSITION_CONTROLLER,
+    RESET_PLATFORM_POSITION, SET_PLATFORM_POSITION,
+    INITIALIZE_MOTOR_POSITION_PID_CONTROLLER, INITIALIZE_PLATFORM_POSITION_PID_CONTROLLER,
+)
+
 from .errors import ConnectionClosedError, ControllerError, KinisiError, ProtocolError, RequestTimeoutError
+
+MIN_PROTOCOL_VERSION = (2, 1, 0)
+POSITION_COMMANDS = frozenset((INITIALIZE_MOTOR_POSITION_CONTROLLER, RESET_MOTOR_POSITION,
+    SET_MOTOR_POSITION, GET_MOTOR_POSITION, INITIALIZE_PLATFORM_POSITION_CONTROLLER,
+    RESET_PLATFORM_POSITION, SET_PLATFORM_POSITION))
+POSITION_PID_COMMANDS = frozenset((INITIALIZE_MOTOR_POSITION_PID_CONTROLLER,
+    INITIALIZE_PLATFORM_POSITION_PID_CONTROLLER))
 
 
 class MotorIndex:
@@ -137,7 +151,7 @@ class KinisiController(KinisiCommands):
                         args=(transport, self._stop), name="pykinisi-reader", daemon=True)
                     self._reader.start()
                 # Advertise streaming support independently of wall-clock availability.
-                self.init(1, *VERSION, *PROTOCOL_VERSION, int(self.wall_clock) | 2)
+                self.init(1, *VERSION, *MIN_PROTOCOL_VERSION, int(self.wall_clock) | 2)
                 if self.heartbeat_timeout_ms is not None:
                     self.set_heartbeat_config(True, self.heartbeat_timeout_ms)
                 self._heartbeat_thread = threading.Thread(target=self._heartbeat_loop,
@@ -171,6 +185,10 @@ class KinisiController(KinisiCommands):
             transport = self.serial
             if transport is None:
                 raise ConnectionClosedError("Connect before sending commands")
+            required_minor = 3 if command in POSITION_PID_COMMANDS else 2 if command in POSITION_COMMANDS else 0
+            if required_minor and (not self._ready or self.board_info is None or
+                    self.board_info.protocol_major != 2 or self.board_info.protocol_minor < required_minor):
+                raise ProtocolError(f"Position command requires a ready protocol 2.{required_minor}+ controller")
             if command in (START_ENCODER_ODOMETRY, GET_ENCODER_ODOMETRY,
                            START_PLATFORM_ODOMETRY, GET_PLATFORM_ODOMETRY, SUBSCRIBE_ODOMETRY) and not self._ready:
                 raise ProtocolError("Odometry requires a completed INIT/READY exchange")
@@ -371,8 +389,8 @@ class KinisiController(KinisiCommands):
                 raise ProtocolError("Response command or payload length does not match its request")
             if command == INIT:
                 identity = InitResponse.decode(payload)
-                if (identity.protocol_major != PROTOCOL_VERSION[0] or
-                        identity.protocol_minor < PROTOCOL_VERSION[1]):
+                if (identity.protocol_major != MIN_PROTOCOL_VERSION[0] or
+                        identity.protocol_minor < MIN_PROTOCOL_VERSION[1]):
                     raise ProtocolError("The controller reported an incompatible protocol version")
                 self.board_info = identity
                 pending.payload = payload

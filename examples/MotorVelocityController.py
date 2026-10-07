@@ -5,6 +5,10 @@ import time
 from Core import *
 
 controller = InitTest()
+info = controller.board_info
+if (info.protocol_major, info.protocol_minor, info.protocol_patch) < (2, 3, 1):
+    controller.disconnect()
+    raise RuntimeError("These starting gains require firmware 2.3.1 or newer; retune for your motor.")
 
 speed = 1.5 # rad/s
 
@@ -18,9 +22,9 @@ controller.initialize_motor_controller(
     is_encoder_reversed = False, # Encoder direction (independent of motor; flip if the controller runs away)
     encoder_resolution = 1425.1, # ticks per revolution
     kp = 1, # Proportional gain
-    ki = 0.1, # Integral gain
+    ki = 1, # Integral gain
     kd = 0, # Derivative gain
-    integral_limit = 30 # Absolute value of integral value.
+    integral_limit = 100 # Integral contribution limit in PWM percentage points.
 )
 # Output of the controller is motor speed in PWM from -100 to 100. Integral limit value should be in this range.
 

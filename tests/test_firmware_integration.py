@@ -185,7 +185,7 @@ class FirmwareIntegrationTests(unittest.TestCase):
         client, serial = self.connect_client()
         self.assertTrue(client.ready)
         self.assertEqual((client.board_info.protocol_major, client.board_info.protocol_minor,
-                          client.board_info.protocol_patch), (2, 1, 0))
+                          client.board_info.protocol_patch), (2, 3, 1))
         self.assertEqual(serial.sent_count(INIT), 1)
         self.assertEqual(serial.sent_count(TIME_SYNC_REQUEST), 3)
         self.assertEqual(serial.sent_count(READY), 1)
