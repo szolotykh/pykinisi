@@ -9,8 +9,10 @@ import struct
 from enum import IntEnum
 
 
-PROTOCOL_VERSION = (2, 3, 1)
+PROTOCOL_VERSION = (2, 5, 0)
 
+GET_TEMPERATURE = 0x50
+GET_IMU = 0x51
 INITIALIZE_MOTOR = 0x01
 SET_MOTOR_SPEED = 0x02
 STOP_MOTOR = 0x03
@@ -94,6 +96,7 @@ class ErrorCode(IntEnum):
     MOTOR_NOT_INITIALIZED = 13
     CONTROLLER_NOT_INITIALIZED = 14
     INIT_REQUIRED = 15
+    SENSOR_NOT_AVAILABLE = 16
 
 
 ERROR_DESCRIPTIONS = {
@@ -106,12 +109,13 @@ ERROR_DESCRIPTIONS = {
     7: 'Initial clock setup is incomplete; wait for READY. Uptime mode also supports READY.',
     8: 'Initial time sync exhausted its attempts without a valid sample.',
     9: 'Odometry is not running; start odometry before requesting a measurement.',
-    10: 'Odometry is running but has no measurement yet, including immediately after reset; retry after an update.',
+    10: 'The requested measurement is not ready yet, including after initialization or reset; retry after an update.',
     11: 'Initialize the encoder before reading it or starting encoder odometry.',
     12: 'Initialize a platform before performing this operation.',
     13: 'Initialize the motor before setting its speed.',
     14: 'Start or initialize the closed-loop controller before setting its target.',
     15: 'Send a valid INIT request before performing this connection-dependent operation.',
+    16: 'The selected sensor is not defined on this board.',
 }
 
 
@@ -387,6 +391,41 @@ class HeartbeatConfig:
         return cls(*_unpack_payload('<?I', payload))
 
 
+class ImuSample:
+    """Latest independent accelerometer and gyroscope samples in sensor axes.
+
+    acceleration_x: X acceleration in m/s^2, including gravity.
+    acceleration_y: Y acceleration in m/s^2, including gravity.
+    acceleration_z: Z acceleration in m/s^2, including gravity.
+    angular_velocity_x: X angular velocity in rad/s.
+    angular_velocity_y: Y angular velocity in rad/s.
+    angular_velocity_z: Z angular velocity in rad/s.
+    """
+
+    def __init__(self, acceleration_x: float, acceleration_y: float, acceleration_z: float, angular_velocity_x: float, angular_velocity_y: float, angular_velocity_z: float):
+        """Store the fields of one controller payload."""
+        self.acceleration_x = acceleration_x
+        self.acceleration_y = acceleration_y
+        self.acceleration_z = acceleration_z
+        self.angular_velocity_x = angular_velocity_x
+        self.angular_velocity_y = angular_velocity_y
+        self.angular_velocity_z = angular_velocity_z
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 48
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<dddddd', self.acceleration_x, self.acceleration_y, self.acceleration_z, self.angular_velocity_x, self.angular_velocity_y, self.angular_velocity_z))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'ImuSample':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<dddddd', payload))
+
+
 class KinisiCommands:
     """Public command methods shared by transports implementing protocol v2."""
 
@@ -396,6 +435,51 @@ class KinisiCommands:
     def _request(self, command: int, payload: bytes, expected_response_length: int) -> bytes:
         """Exchange a command payload and return its matching response payload."""
         raise NotImplementedError("A protocol-v2 transport must implement _request")
+
+    def get_temperature(self, sensor_index: int) -> float:
+        """Protocol 2.4: read the latest board temperature in degrees Celsius. Sensor 0 is the
+        TMP102 on v0.4. Sampling runs at 4 Hz; faster reads may repeat a sample. Returns
+        SAMPLE_NOT_AVAILABLE during the first 300 ms after sensor initialization or
+        recovery, SENSOR_NOT_AVAILABLE when the board has no such sensor, and INTERNAL_ERROR
+        on I2C or configuration failure.
+
+        sensor_index: Zero-based index in the board temperature_sensors array.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED,
+        SENSOR_NOT_AVAILABLE, SAMPLE_NOT_AVAILABLE, INTERNAL_ERROR.
+        """
+        if type(sensor_index) is not int or not 0 <= sensor_index <= 255:
+            raise ValueError('sensor_index must be an integer from 0 to 255')
+        payload = struct.pack('<B', sensor_index)
+        result = self._request(GET_TEMPERATURE, payload, 8)
+        temperature = _unpack_payload('<d', result)[0]
+        if not math.isfinite(temperature):
+            raise ValueError('Invalid temperature payload')
+        return temperature
+
+    def get_imu(self, sensor_index: int) -> ImuSample:
+        """Protocol 2.5: read the latest accelerometer and gyroscope samples in native sensor
+        axes. Acceleration is in m/s^2 and includes gravity; angular velocity is in rad/s.
+        BMI088 uses +/-6 g and +/-500 degrees/s at 100 Hz. Each three-axis sample is
+        coherent, but accel and gyro are not time-synchronized. Faster requests may repeat
+        samples. No orientation or calibration is applied. Returns SAMPLE_NOT_AVAILABLE
+        during the 50 ms settling interval after initialization or recovery,
+        SENSOR_NOT_AVAILABLE for an absent sensor, and INTERNAL_ERROR on SPI, identity or
+        configuration failure.
+
+        sensor_index: Zero-based index in the board imu_sensors array.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED,
+        SENSOR_NOT_AVAILABLE, SAMPLE_NOT_AVAILABLE, INTERNAL_ERROR.
+        """
+        if type(sensor_index) is not int or not 0 <= sensor_index <= 255:
+            raise ValueError('sensor_index must be an integer from 0 to 255')
+        payload = struct.pack('<B', sensor_index)
+        result = self._request(GET_IMU, payload, ImuSample.get_size())
+        sample = ImuSample.decode(result)
+        if not all(math.isfinite(value) for value in vars(sample).values()):
+            raise ValueError('Invalid IMU payload')
+        return sample
 
     def initialize_motor(self, motor_index: int, is_reversed: bool) -> None:
         """This command initializes a motor and prepares it for use. Rejected with MOTOR_OWNED
@@ -428,16 +512,14 @@ class KinisiCommands:
         result = self._request(SET_MOTOR_SPEED, payload, 0)
 
     def stop_motor(self, motor_index: int) -> None:
-        """Coasts the motor to a stop: both H-bridge outputs are driven low, leaving the motor
-        terminals open (high impedance) so it free-wheels and spins down gradually under its
-        own friction. This also stops that motor's closed-loop speed controller if one is
-        running (started via INITIALIZE_MOTOR_CONTROLLER), so the PID loop cannot re-drive
-        the motor; to command the motor by target speed again you must re-initialize its
-        controller. This is a single-motor command and is ignored if the motor is currently
-        owned by an active platform (one of its wheels); to stop a platform, use
-        STOP_PLATFORM_CONTROLLER, COAST_PLATFORM or BRAKE_PLATFORM instead. Use STOP_MOTOR
-        for a soft, low-stress stop; use BRAKE_MOTOR when you need the motor to hold
-        position and stop quickly.
+        """Stops the motor's velocity and position controllers and lets the motor coast with
+        the H-bridge outputs in high impedance. On dual-PWM boards both PWM control inputs
+        are low. On V4 enable/direction boards DISABLE is high and EN duty is zero. The
+        command ID and payload are the same for all boards; firmware selects the hardware
+        behavior from the board configuration. A motor owned by an active platform is
+        rejected with MOTOR_OWNED; use COAST_PLATFORM or STOP_PLATFORM_CONTROLLER for
+        platform wheels. Re-initialize the motor controller before using target-speed
+        control again. Use BRAKE_MOTOR for a short brake instead of coasting.
 
         motor_index: The index of the motor to set the speed for.
 
@@ -447,16 +529,15 @@ class KinisiCommands:
         result = self._request(STOP_MOTOR, payload, 0)
 
     def brake_motor(self, motor_index: int) -> None:
-        """Actively brakes the motor (short brake): both H-bridge outputs are driven high,
-        shorting the motor terminals together so the motor's own back-EMF resists rotation
-        and it stops quickly and holds position. This also stops that motor's closed-loop
-        speed controller if one is running (started via INITIALIZE_MOTOR_CONTROLLER), so the
-        PID loop cannot re-drive the motor; to command the motor by target speed again you
-        must re-initialize its controller. This is a single-motor command and is ignored if
-        the motor is currently owned by an active platform (one of its wheels); to brake a
-        platform, use BRAKE_PLATFORM (or STOP_PLATFORM_CONTROLLER / COAST_PLATFORM) instead.
-        Use BRAKE_MOTOR for a fast, holding stop; use STOP_MOTOR to let the motor coast
-        freely instead.
+        """Stops the motor's velocity and position controllers and applies a short brake,
+        connecting both motor terminals to the same bridge rail to resist rotation. On
+        dual-PWM boards both PWM control inputs are high. On V4 enable/direction boards
+        DISABLE is low and EN duty is zero; direction does not affect braking. The command
+        ID and payload are the same for all boards; firmware selects the hardware behavior
+        from the board configuration. Short braking does not regulate or hold a specific
+        position. A motor owned by an active platform is rejected with MOTOR_OWNED; use
+        BRAKE_PLATFORM for platform wheels. Re-initialize the motor controller before using
+        target-speed control again. Use STOP_MOTOR to coast instead.
 
         motor_index: The index of the motor to set the speed for.
 
@@ -923,11 +1004,11 @@ class KinisiCommands:
         return PlatformOdometrySample.decode(result)
 
     def brake_platform(self) -> None:
-        """This command actively brakes all of this platform's wheel motors (short brake) so
-        they resist motion and hold position, and stops the platform velocity controller if
-        it is running (you must call START_PLATFORM_CONTROLLER again to resume closed-loop
-        platform control). Motors used outside this platform are not affected. The motors
-        resist motion until a new command is issued.
+        """Stops the platform velocity and position controllers and applies a short brake to
+        this platform's wheel motors using the selected board's motor control model. Other
+        motors are not affected. The brake resists motion until a new command is issued; it
+        does not regulate or hold a specific position. Call START_PLATFORM_CONTROLLER again
+        to resume closed-loop platform control.
 
         Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR.
         """

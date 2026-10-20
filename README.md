@@ -4,6 +4,12 @@ Description of the commands can be found in [Kinisi Motion Controller framework 
 
 API v2 is incompatible with API v1. See [protocol details](docs/protocol-v2.md).
 
+The SDK bundles public profiles for all four supported boards. After connection,
+`controller.board_profile` contains the automatically selected hardware profile,
+and `controller.supports_sensor('imu')` checks both hardware and firmware support.
+Profiles are included in package releases; normal use requires no download.
+See [board profiles and sensors](docs/protocol-v2.md#board-profiles-and-sensors).
+
 ## Installation
 Install pykinisi with pip:
 ```bash
@@ -53,6 +59,7 @@ python <example_file> <serial_port>
 ```
 
 `Initialization.py` reports board identity and clock status without enabling motors. Use `python Initialization.py <serial_port> --uptime` when the host has no valid wall clock.
+`Sensors.py` reads the available temperature and IMU sensors using the selected profile.
 
 ## Package Development
 Install pykinisi for development:
@@ -60,13 +67,19 @@ Install pykinisi for development:
 pip install -e .
 ```
 
-Update KinisiCommands.py file:
+Update commands and board profiles from the project root:
 ```bash
-cd tools
-python update-commands.py --schema ../../kinisi-motor-controller-firmware/commands.json
+python tools/update-commands.py --schema ../kinisi-motor-controller-firmware/commands.json
+python tools/update-board-profiles.py --profiles ../kinisi-motor-controller-firmware/include/board_profiles.json
 ```
 
-The command above uses a sibling firmware checkout. Use `--branch=<firmware-branch>` to fetch a firmware branch containing the API v2 schema instead.
+Each script also accepts `--branch=<firmware-branch>` to explicitly download its
+source from that firmware branch. Use `--check` with either source option to
+detect stale generated files without writing. Commands are saved as
+`tools/commands.json` and generated into `pykinisi/KinisiCommands.py`; public
+profiles are saved as `pykinisi/board_profiles.json` and bundled in wheels and
+source releases. Invalid input is rejected before replacing existing outputs.
+Custom runtime profile loading is not supported.
 
 Run tests from the project root with `python -m unittest discover -s tests`.
 

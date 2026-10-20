@@ -1,0 +1,167 @@
+{
+  "schema_version": 1,
+  "boards": [
+    {
+      "board": {
+        "model": 1,
+        "revision": "0.1.0"
+      },
+      "resources": {
+        "motors": 4,
+        "encoders": 1,
+        "gpio": 4,
+        "status_leds": 1
+      },
+      "motor_features": [
+        {
+          "id": 0,
+          "current_sense": false,
+          "current_limit": false
+        },
+        {
+          "id": 1,
+          "current_sense": false,
+          "current_limit": false
+        },
+        {
+          "id": 2,
+          "current_sense": false,
+          "current_limit": false
+        },
+        {
+          "id": 3,
+          "current_sense": false,
+          "current_limit": false
+        }
+      ],
+      "sensors": {
+        "temperature": [],
+        "imu": []
+      }
+    },
+    {
+      "board": {
+        "model": 1,
+        "revision": "0.2.0"
+      },
+      "resources": {
+        "motors": 4,
+        "encoders": 4,
+        "gpio": 4,
+        "status_leds": 1
+      },
+      "motor_features": [
+        {
+          "id": 0,
+          "current_sense": false,
+          "current_limit": false
+        },
+        {
+          "id": 1,
+          "current_sense": false,
+          "current_limit": false
+        },
+        {
+          "id": 2,
+          "current_sense": false,
+          "current_limit": false
+        },
+        {
+          "id": 3,
+          "current_sense": false,
+          "current_limit": false
+        }
+      ],
+      "sensors": {
+        "temperature": [],
+        "imu": []
+      }
+    },
+    {
+      "board": {
+        "model": 1,
+        "revision": "0.3.0"
+      },
+      "resources": {
+        "motors": 4,
+        "encoders": 4,
+        "gpio": 10,
+        "status_leds": 1
+      },
+      "motor_features": [
+        {
+          "id": 0,
+          "current_sense": false,
+          "current_limit": false
+        },
+        {
+          "id": 1,
+          "current_sense": false,
+          "current_limit": false
+        },
+        {
+          "id": 2,
+          "current_sense": false,
+          "current_limit": false
+        },
+        {
+          "id": 3,
+          "current_sense": false,
+          "current_limit": false
+        }
+      ],
+      "sensors": {
+        "temperature": [],
+        "imu": []
+      }
+    },
+    {
+      "board": {
+        "model": 1,
+        "revision": "0.4.0"
+      },
+      "resources": {
+        "motors": 4,
+        "encoders": 4,
+        "gpio": 8,
+        "status_leds": 1
+      },
+      "motor_features": [
+        {
+          "id": 0,
+          "current_sense": true,
+          "current_limit": true
+        },
+        {
+          "id": 1,
+          "current_sense": true,
+          "current_limit": true
+        },
+        {
+          "id": 2,
+          "current_sense": true,
+          "current_limit": true
+        },
+        {
+          "id": 3,
+          "current_sense": true,
+          "current_limit": true
+        }
+      ],
+      "sensors": {
+        "temperature": [
+          {
+            "id": 0
+          }
+        ],
+        "imu": [
+          {
+            "id": 0,
+            "accelerometer": true,
+            "gyroscope": true
+          }
+        ]
+      }
+    }
+  ]
+}

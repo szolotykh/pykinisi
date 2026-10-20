@@ -41,7 +41,12 @@ def schema_fixture():
             {"name": "command", "type": "uint8_t"},
             {"name": "message_id", "type": "uint16_t"},
         ]},
-        "objects": [{"name": "sample_state", "description": "Sample state.", "properties": fields}],
+        "objects": [
+            {"name": "sample_state", "description": "Sample state.", "properties": fields},
+            {"name": "imu_sample", "properties": [
+                {"name": field + '_' + axis, "type": "double"}
+                for field in ("acceleration", "angular_velocity") for axis in "xyz"]},
+        ],
         "error_codes": [{"name": "INVALID_ARGUMENT", "code": 2, "description": "Invalid field."}],
         "commands": [
             {"command": "SET_SAMPLE", "code": "0x01", "direction": "client_to_controller",
@@ -61,6 +66,12 @@ def schema_fixture():
              "properties": [{"name": "host_receive_us", "type": "uint64_t"},
                             {"name": "host_send_us", "type": "uint64_t"}]},
             {"command": "READY", "code": "0x73", "direction": "controller_to_client"},
+            {"command": "GET_TEMPERATURE", "code": "0x50", "direction": "client_to_controller",
+             "properties": [{"name": "sensor_index", "type": "uint8_t"}],
+             "response": {"type": "double", "direction": "controller_to_client"}},
+            {"command": "GET_IMU", "code": "0x51", "direction": "client_to_controller",
+             "properties": [{"name": "sensor_index", "type": "uint8_t"}],
+             "response": {"type": "object", "name": "imu_sample", "direction": "controller_to_client"}},
             *[{"command": name, "code": code, "description": name,
                "direction": "controller_to_client" if name.endswith("_EVENT") else "client_to_controller"}
               for name, code in [("PING", "0x76"), ("SET_HEARTBEAT_CONFIG", "0x77"),
@@ -293,6 +304,12 @@ class CheckedInSchemaTests(unittest.TestCase):
         actual = (ROOT / "pykinisi" / "KinisiCommands.py").read_text(encoding="utf-8")
         self.assertEqual(actual, expected)
 
+    def test_bundled_schema_regeneration_matches(self):
+        """An installed source release can regenerate without a firmware checkout."""
+        data = json.loads((ROOT / "tools/commands.json").read_text(encoding="utf-8"))
+        self.assertEqual(generator.generate_python_code(data),
+                         (ROOT / "pykinisi/KinisiCommands.py").read_text(encoding="utf-8"))
+
 
 class UpdaterTests(unittest.TestCase):
     """Check explicit source selection and local generation without any network."""
@@ -315,11 +332,47 @@ class UpdaterTests(unittest.TestCase):
             output = Path(directory) / "generated.py"
             schema.write_text(json.dumps(schema_fixture()), encoding="utf-8")
             with mock.patch.object(self.updater, "OUTPUT_PATH", output), \
+                    mock.patch.object(self.updater, "SCHEMA_PATH", Path(directory) / "bundled.json"), \
                     mock.patch.object(self.updater, "urlopen") as fetch, \
                     mock.patch("sys.stdout", new=io.StringIO()):
                 self.updater.main(["--schema", str(schema)])
             fetch.assert_not_called()
             self.assertEqual(output.read_text(encoding="utf-8"), generator.generate_python_code(schema_fixture()))
+
+    def test_missing_sensor_exports_preserve_both_files(self):
+        """Older schemas cannot remove exports required by the handwritten session."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            schema_path, output, snapshot = root / "input.json", root / "commands.py", root / "bundled.json"
+            for version, missing in (("2.5.0", {"GET_TEMPERATURE"}), ("2.4.0", {"GET_IMU"}),
+                                     ("2.3.1", {"GET_TEMPERATURE", "GET_IMU"})):
+                with self.subTest(version=version, missing=missing):
+                    schema = schema_fixture()
+                    schema["version"] = version
+                    schema["commands"] = [c for c in schema["commands"] if c["command"] not in missing]
+                    schema_path.write_text(json.dumps(schema), encoding="utf-8")
+                    for path in (output, snapshot):
+                        path.write_bytes(b"preserved\n")
+                    with mock.patch.object(self.updater, "OUTPUT_PATH", output), \
+                            mock.patch.object(self.updater, "SCHEMA_PATH", snapshot), \
+                            self.assertRaisesRegex(ValueError, "missing runtime commands"):
+                        self.updater.main(["--schema", str(schema_path)])
+                    for path in (output, snapshot):
+                        self.assertEqual(path.read_bytes(), b"preserved\n")
+
+    def test_check_detects_stale_snapshot_without_writing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            schema = schema_fixture()
+            source, output, snapshot = root / "input.json", root / "commands.py", root / "bundled.json"
+            source.write_text(json.dumps(schema), encoding="utf-8")
+            output.write_text(generator.generate_python_code(schema), encoding="utf-8")
+            snapshot.write_bytes(b"stale\n")
+            with mock.patch.object(self.updater, "OUTPUT_PATH", output), \
+                    mock.patch.object(self.updater, "SCHEMA_PATH", snapshot), \
+                    self.assertRaisesRegex(ValueError, "stale"):
+                self.updater.main(["--schema", str(source), "--check"])
+            self.assertEqual(snapshot.read_bytes(), b"stale\n")
 
 
 if __name__ == "__main__":
