@@ -17,8 +17,9 @@ from .KinisiCommands import (
     GET_ENCODER_ODOMETRY, START_PLATFORM_ODOMETRY, GET_PLATFORM_ODOMETRY,
     PING, SET_HEARTBEAT_CONFIG, SUBSCRIBE_ODOMETRY, UNSUBSCRIBE_ODOMETRY,
     ENCODER_ODOMETRY_EVENT, PLATFORM_ODOMETRY_EVENT,
-    EncoderOdometrySample, PlatformOdometrySample,
+    EncoderOdometrySample, PlatformOdometrySample, GET_TEMPERATURE, GET_IMU,
 )
+from .board_profile import get_board_profile, supports_board_sensor
 from ._version import VERSION
 from .KinisiCommands import (
     INITIALIZE_MOTOR_POSITION_CONTROLLER, RESET_MOTOR_POSITION, SET_MOTOR_POSITION,
@@ -35,6 +36,7 @@ POSITION_COMMANDS = frozenset((INITIALIZE_MOTOR_POSITION_CONTROLLER, RESET_MOTOR
     RESET_PLATFORM_POSITION, SET_PLATFORM_POSITION))
 POSITION_PID_COMMANDS = frozenset((INITIALIZE_MOTOR_POSITION_PID_CONTROLLER,
     INITIALIZE_PLATFORM_POSITION_PID_CONTROLLER))
+SENSOR_COMMANDS = {GET_TEMPERATURE: ("temperature", 4), GET_IMU: ("imu", 5)}
 
 
 class MotorIndex:
@@ -128,6 +130,17 @@ class KinisiController(KinisiCommands):
         with self._lock:
             return self.serial is not None and self._ready
 
+    @property
+    def board_profile(self):
+        """Bundled hardware profile selected from INIT, or None for an unknown board."""
+        with self._lock:
+            return get_board_profile(self.board_info)
+
+    def supports_sensor(self, kind, index=0):
+        """Check hardware presence and firmware support without performing I/O."""
+        with self._lock:
+            return supports_board_sensor(self.board_info, kind, index)
+
     def connect(self, port):
         """Open and finish INIT/READY; return False with last_error on failure."""
         with self._lifecycle_lock:
@@ -185,6 +198,13 @@ class KinisiController(KinisiCommands):
             transport = self.serial
             if transport is None:
                 raise ConnectionClosedError("Connect before sending commands")
+            if command in SENSOR_COMMANDS:
+                kind, sensor_minor = SENSOR_COMMANDS[command]
+                if (not self._ready or self.board_info is None or
+                        self.board_info.protocol_major != 2 or self.board_info.protocol_minor < sensor_minor):
+                    raise ProtocolError(f"{kind.upper() if kind == 'imu' else 'Temperature'} readings require a ready protocol 2.{sensor_minor}+ controller")
+                if self.board_profile is not None and not self.supports_sensor(kind, payload[0]):
+                    raise ProtocolError(f"This board has no {kind} sensor at that index")
             required_minor = 3 if command in POSITION_PID_COMMANDS else 2 if command in POSITION_COMMANDS else 0
             if required_minor and (not self._ready or self.board_info is None or
                     self.board_info.protocol_major != 2 or self.board_info.protocol_minor < required_minor):
@@ -414,6 +434,7 @@ class KinisiController(KinisiCommands):
                 return
             self.serial = None
             self._ready = False
+            self.board_info = self.clock_mode = None
             self._heartbeat_idle_s = None
             self._subscription_samples.clear()
             self._stop.set()

@@ -126,6 +126,7 @@ class Board:
         self.init_error = None
         self.command_hook = None
         self.protocol = (2, 1, 0)
+        self.identity = (1, 0, 3, 0)
         self.sample_time = (1 << 55) + 123
 
     def ready(self):
@@ -145,7 +146,7 @@ class Board:
                 return
             self.mode = payload[7] & 1
             self.initial_samples = 0
-            identity = struct.pack("<7BII", 1, 0, 3, 0, *self.protocol, 0x12345678, 0x90ABCDEF)
+            identity = struct.pack("<7BII", *self.identity, *self.protocol, 0x12345678, 0x90ABCDEF)
             self.transport.inject(frame(INIT, message_id, identity))
             if self.identity_only:
                 return
@@ -198,7 +199,7 @@ class ControllerTests(unittest.TestCase):
         self.transport.read_chunk = 1
         self.transport.write_chunk = 2
         self.connect()
-        self.assertEqual(self.board.init_payloads, [bytes([1, 2, 3, 1, 2, 1, 0, 3])])
+        self.assertEqual(self.board.init_payloads, [bytes([1, 2, 5, 0, 2, 1, 0, 3])])
         self.assertTrue(self.controller.ready)
         self.assertEqual(self.controller.clock_mode, ClockMode.WALL)
         self.assertEqual(self.controller.board_info.board_minor, 3)

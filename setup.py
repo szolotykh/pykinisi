@@ -15,6 +15,7 @@ setup(name='pykinisi',
       license='MIT',
       zip_safe=False,
       packages=find_packages(),
+      package_data={'pykinisi': ['board_profiles.json']},
       install_requires=['pyserial'],
       python_requires='>=3.8',
       keywords=['motor controller', 'hardware', 'robotics', 'kinisi', 'kinisi controller'],
@@ -23,6 +24,6 @@ setup(name='pykinisi',
                   'License :: OSI Approved :: MIT License',
                   'Operating System :: OS Independent'
                    ],
-      long_description=open('README.md').read(),
+      long_description=Path('README.md').read_text(encoding='utf-8'),
       long_description_content_type='text/markdown'
       )

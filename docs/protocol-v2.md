@@ -1,10 +1,19 @@
 # Messages API v2
 
-pykinisi uses messages API **2.3.1**. API 1.x firmware and clients are
+pykinisi includes messages API **2.5.0** and connects to firmware **2.1+** within
+protocol major 2, gating newer commands separately. API 1.x firmware and clients are
 incompatible with the new framing and responses; update firmware and the SDK
 together. Existing motor and GPIO method arguments remain the same. Methods
 that set values now wait for the controller's acknowledgement and can raise a
 controller error or timeout.
+
+The protocol uses `major.minor.patch`. Major changes break the existing wire
+interface and require matching supported majors. Minor versions add compatible
+commands while preserving existing IDs, layouts, units and meanings. Patch
+versions provide compatible fixes and do not block connection. An incompatible
+replacement command needs a new ID while retaining the original, or a major
+version bump. Protocol versions are independent of board revisions and SDK
+package versions. INIT does not translate between protocol majors.
 
 ## Connect and identify the board
 
@@ -49,6 +58,71 @@ not enable motors or start odometry.
 Format the build words as `f"{board.firmware_build_high:08x}{board.firmware_build_low:08x}"`.
 This identifies a source commit, not a semantic release version, and does not
 identify uncommitted changes. A build without Git metadata reports zero.
+
+## Board profiles and sensors
+
+The SDK includes the public profiles generated from the firmware board JSON.
+After INIT, `controller.board_profile` selects an exact match for the board model
+and complete hardware revision. The profile is a read-only mapping with `board`,
+`resources`, `motor_features` and `sensors`; nested arrays are immutable tuples.
+It includes resource counts and sensor IDs/features, and omits wiring, MCU, bus,
+timer and component details. It is cleared on disconnect, connection failure and
+the start of a new INIT. No runtime download or custom profile loading is needed.
+
+```python
+from pykinisi import KinisiController
+
+with KinisiController() as controller:
+    if not controller.connect("COM3"):
+        raise RuntimeError(controller.last_error)
+    profile = controller.board_profile
+    if profile is not None:
+        print(profile["resources"]["motors"])
+    if controller.supports_sensor("temperature", 0):
+        print(controller.get_temperature(0))  # degrees Celsius
+    if controller.supports_sensor("imu", 0):
+        sample = controller.get_imu(0)
+        print(sample.acceleration_z, sample.angular_velocity_z)
+```
+
+`supports_sensor(kind, index=0)` combines known hardware presence with firmware
+protocol support. It describes availability, not session readiness or sensor
+health. The exported helpers `get_board_profile(info)`,
+`has_board_sensor(info, kind, index=0)` and
+`supports_board_sensor(info, kind, index=0)` also accept an INIT response or a
+mapping of its fields. Physical presence can be checked independently of protocol.
+
+An unknown board has no profile and `supports_sensor` returns `False`, but it can
+still connect and use compatible commands. Direct sensor reads on unknown boards
+rely on firmware availability errors. A known absent sensor or invalid sensor ID
+is rejected before I/O. No profile is borrowed from a different board revision.
+Per-motor `current_sense` and `current_limit` flags describe fitted hardware;
+current ADC reads and adjustable-current commands remain unimplemented in firmware.
+
+| Method | Minimum protocol | Result |
+| --- | --- | --- |
+| `get_temperature(sensor_index)` | 2.4 | Finite float in degrees Celsius |
+| `get_imu(sensor_index)` | 2.5 | `ImuSample` with six finite floats |
+
+Both require a completed INIT/READY exchange. Sensor indices are integers from
+0 to 255; the board profile determines which indices are fitted. Temperature uses
+an 8-byte little-endian double. IMU returns six doubles (48 bytes):
+`acceleration_x`, `acceleration_y`, `acceleration_z` in m/s², and
+`angular_velocity_x`, `angular_velocity_y`, `angular_velocity_z` in rad/s.
+Acceleration includes gravity. Values use native sensor axes; accelerometer and
+gyroscope samples are independent, with no orientation, fusion or calibration.
+
+Firmware can return `SAMPLE_NOT_AVAILABLE` during sensor startup/recovery,
+`SENSOR_NOT_AVAILABLE` for an absent sensor, or `INTERNAL_ERROR` for sensor I/O
+or configuration failure. These are `ControllerError` replies and leave the
+session usable. See [Sensors.py](../examples/Sensors.py) for a runnable example
+that handles sensor errors without enabling motors.
+
+Maintainers update the bundled files explicitly using the local or branch import
+commands in the [README](../README.md#package-development). Wheels and source
+distributions include `pykinisi/board_profiles.json`; source distributions also
+include the command schema snapshot and update scripts. Rejecting an old schema
+that lacks required SDK exports does not prevent connecting to older firmware.
 
 ## Clock setup and periodic sync
 

@@ -1,0 +1,2328 @@
+{
+  "version": "2.5.0",
+  "commands": [
+    {
+      "command": "GET_TEMPERATURE",
+      "code": "0x50",
+      "direction": "client_to_controller",
+      "description": "Protocol 2.4: read the latest board temperature in degrees Celsius. Sensor 0 is the TMP102 on v0.4. Sampling runs at 4 Hz; faster reads may repeat a sample. Returns SAMPLE_NOT_AVAILABLE during the first 300 ms after sensor initialization or recovery, SENSOR_NOT_AVAILABLE when the board has no such sensor, and INTERNAL_ERROR on I2C or configuration failure.",
+      "properties": [
+        {
+          "name": "sensor_index",
+          "type": "uint8_t",
+          "description": "Zero-based index in the board temperature_sensors array."
+        }
+      ],
+      "category": "Sensors",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "SENSOR_NOT_AVAILABLE",
+        "SAMPLE_NOT_AVAILABLE",
+        "INTERNAL_ERROR"
+      ],
+      "response": {
+        "name": "temperature_celsius",
+        "type": "double",
+        "direction": "controller_to_client",
+        "description": "Latest temperature in degrees Celsius, encoded as a little-endian IEEE 754 64-bit double."
+      }
+    },
+    {
+      "command": "GET_IMU",
+      "code": "0x51",
+      "direction": "client_to_controller",
+      "description": "Protocol 2.5: read the latest accelerometer and gyroscope samples in native sensor axes. Acceleration is in m/s^2 and includes gravity; angular velocity is in rad/s. BMI088 uses +/-6 g and +/-500 degrees/s at 100 Hz. Each three-axis sample is coherent, but accel and gyro are not time-synchronized. Faster requests may repeat samples. No orientation or calibration is applied. Returns SAMPLE_NOT_AVAILABLE during the 50 ms settling interval after initialization or recovery, SENSOR_NOT_AVAILABLE for an absent sensor, and INTERNAL_ERROR on SPI, identity or configuration failure.",
+      "properties": [
+        {
+          "name": "sensor_index",
+          "type": "uint8_t",
+          "description": "Zero-based index in the board imu_sensors array."
+        }
+      ],
+      "category": "Sensors",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "SENSOR_NOT_AVAILABLE",
+        "SAMPLE_NOT_AVAILABLE",
+        "INTERNAL_ERROR"
+      ],
+      "response": {
+        "name": "imu_sample",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Six little-endian IEEE 754 doubles, 48 bytes total."
+      }
+    },
+    {
+      "command": "INITIALIZE_MOTOR",
+      "code": "0x01",
+      "direction": "client_to_controller",
+      "description": "This command initializes a motor and prepares it for use. Rejected with MOTOR_OWNED if the motor is currently owned by an active platform (one of its wheels), so platform wheels are not reconfigured out from under the platform. Stops the motor velocity and position controllers before applying the command.",
+      "properties": [
+        {
+          "name": "motor_index",
+          "type": "uint8_t",
+          "range": [
+            0,
+            3
+          ],
+          "description": "The index of the motor to initialize."
+        },
+        {
+          "name": "is_reversed",
+          "type": "bool",
+          "default": false,
+          "description": "Whether or not the motor is reversed."
+        }
+      ],
+      "category": "Motor",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "MOTOR_OWNED",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "SET_MOTOR_SPEED",
+      "code": "0x02",
+      "direction": "client_to_controller",
+      "description": "This command sets the speed of the specified motor in PWM. Rejected with MOTOR_OWNED if the motor is currently owned by an active platform (one of its wheels); use the platform velocity commands to drive platform wheels. Stops the motor velocity and position controllers before applying the command.",
+      "properties": [
+        {
+          "name": "motor_index",
+          "type": "uint8_t",
+          "range": [
+            0,
+            3
+          ],
+          "description": "The index of the motor to set the speed for."
+        },
+        {
+          "name": "pwm",
+          "type": "double",
+          "range": [
+            -100.0,
+            100.0
+          ],
+          "description": "The speed of the motor."
+        }
+      ],
+      "category": "Motor",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "MOTOR_OWNED",
+        "MOTOR_NOT_INITIALIZED",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "STOP_MOTOR",
+      "code": "0x03",
+      "direction": "client_to_controller",
+      "description": "Stops the motor's velocity and position controllers and lets the motor coast with the H-bridge outputs in high impedance. On dual-PWM boards both PWM control inputs are low. On V4 enable/direction boards DISABLE is high and EN duty is zero. The command ID and payload are the same for all boards; firmware selects the hardware behavior from the board configuration. A motor owned by an active platform is rejected with MOTOR_OWNED; use COAST_PLATFORM or STOP_PLATFORM_CONTROLLER for platform wheels. Re-initialize the motor controller before using target-speed control again. Use BRAKE_MOTOR for a short brake instead of coasting.",
+      "properties": [
+        {
+          "name": "motor_index",
+          "type": "uint8_t",
+          "range": [
+            0,
+            3
+          ],
+          "description": "The index of the motor to set the speed for."
+        }
+      ],
+      "category": "Motor",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "MOTOR_OWNED"
+      ]
+    },
+    {
+      "command": "BRAKE_MOTOR",
+      "code": "0x04",
+      "direction": "client_to_controller",
+      "description": "Stops the motor's velocity and position controllers and applies a short brake, connecting both motor terminals to the same bridge rail to resist rotation. On dual-PWM boards both PWM control inputs are high. On V4 enable/direction boards DISABLE is low and EN duty is zero; direction does not affect braking. The command ID and payload are the same for all boards; firmware selects the hardware behavior from the board configuration. Short braking does not regulate or hold a specific position. A motor owned by an active platform is rejected with MOTOR_OWNED; use BRAKE_PLATFORM for platform wheels. Re-initialize the motor controller before using target-speed control again. Use STOP_MOTOR to coast instead.",
+      "properties": [
+        {
+          "name": "motor_index",
+          "type": "uint8_t",
+          "range": [
+            0,
+            3
+          ],
+          "description": "The index of the motor to set the speed for."
+        }
+      ],
+      "category": "Motor",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "MOTOR_OWNED"
+      ]
+    },
+    {
+      "command": "INITIALIZE_MOTOR_CONTROLLER",
+      "code": "0x05",
+      "direction": "client_to_controller",
+      "description": "This command sets the controller for the specified motor. Rejected with MOTOR_OWNED if the motor is currently owned by an active platform (one of its wheels), so it cannot create a competing controller on a platform wheel. Firmware 2.3.1 uses direct P+I+D PWM output with saturation anti-windup; retune gains from earlier builds.",
+      "properties": [
+        {
+          "name": "motor_index",
+          "type": "uint8_t",
+          "range": [
+            0,
+            3
+          ],
+          "description": "The index of the motor to set the controller for."
+        },
+        {
+          "name": "is_reversed",
+          "type": "bool",
+          "default": false,
+          "description": "Whether or not the motor is reversed."
+        },
+        {
+          "name": "encoder_index",
+          "type": "uint8_t",
+          "range": [
+            0,
+            3
+          ],
+          "description": "The index of the encoder to use for the controller."
+        },
+        {
+          "name": "is_encoder_reversed",
+          "type": "bool",
+          "default": false,
+          "description": "Reverses the encoder counting direction, independently of the motor's is_reversed. For closed-loop control the encoder must report a positive measured speed when a positive speed is commanded (negative feedback); if the controller runs away, flip this flag."
+        },
+        {
+          "name": "encoder_resolution",
+          "type": "double",
+          "description": "Encoder resolution in ticks per revolution. The value can not be negative or zero."
+        },
+        {
+          "name": "kp",
+          "type": "double",
+          "description": "kp gain (PWM percentage points per rad/s), finite and nonnegative."
+        },
+        {
+          "name": "ki",
+          "type": "double",
+          "description": "ki gain (PWM percentage points per rad), finite and nonnegative."
+        },
+        {
+          "name": "kd",
+          "type": "double",
+          "description": "kd gain (PWM percentage points per rad/s^2), finite and nonnegative."
+        },
+        {
+          "name": "integral_limit",
+          "type": "double",
+          "description": "Maximum absolute integral contribution in PWM percentage points (0..100). Zero disables integral action.",
+          "range": [
+            0,
+            100
+          ]
+        }
+      ],
+      "category": "Motor Controller",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "MOTOR_OWNED",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "SET_MOTOR_TARGET_SPEED",
+      "code": "0x06",
+      "direction": "client_to_controller",
+      "description": "This command sets the target speed for the specified motor in radians. Rejected with MOTOR_OWNED if the motor is currently owned by an active platform (one of its wheels); use SET_PLATFORM_TARGET_VELOCITY to drive platform wheels. Suspends position mode; a new SET_MOTOR_POSITION reactivates it.",
+      "properties": [
+        {
+          "name": "motor_index",
+          "type": "uint8_t",
+          "range": [
+            0,
+            3
+          ],
+          "description": "The index of the motor to set the target velocity for."
+        },
+        {
+          "name": "speed",
+          "type": "double",
+          "description": "The speed of the motor."
+        }
+      ],
+      "category": "Motor Controller",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "MOTOR_OWNED",
+        "CONTROLLER_NOT_INITIALIZED",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "RESET_MOTOR_CONTROLLER",
+      "code": "0x07",
+      "direction": "client_to_controller",
+      "description": "This command resets the closed-loop controller for the specified motor: it clears the accumulated PID state (integrator windup, derivative history and internal output) and re-zeros the target speed, while keeping the controller running with its existing tuning (kp/ki/kd). Use it to recover from integrator windup or to bring a motor cleanly to a stop without deleting and re-initializing the controller. No effect if no controller is running for that motor, and ignored if the motor is currently owned by an active platform (one of its wheels).",
+      "properties": [
+        {
+          "name": "motor_index",
+          "type": "uint8_t",
+          "range": [
+            0,
+            3
+          ],
+          "description": "The index of the motor to reset the controller for."
+        }
+      ],
+      "category": "Motor Controller",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "MOTOR_OWNED",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "GET_MOTOR_CONTROLLER_STATE",
+      "code": "0x08",
+      "direction": "client_to_controller",
+      "description": "This command gets the state of the controller for the specified motor.",
+      "properties": [
+        {
+          "name": "motor_index",
+          "type": "uint8_t",
+          "range": [
+            0,
+            3
+          ],
+          "description": "The index of the motor to get the state for."
+        }
+      ],
+      "response": {
+        "name": "motor_controller_state",
+        "type": "object",
+        "description": "The state of the controller for the specified motor.",
+        "direction": "controller_to_client"
+      },
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "DELETE_MOTOR_CONTROLLER",
+      "code": "0x09",
+      "direction": "client_to_controller",
+      "description": "This command deletes the controller for the specified motor. Rejected with MOTOR_OWNED if the motor is currently owned by an active platform (one of its wheels); use STOP_PLATFORM_CONTROLLER to stop the platform controller instead.",
+      "properties": [
+        {
+          "name": "motor_index",
+          "type": "uint8_t",
+          "range": [
+            0,
+            3
+          ],
+          "description": "The index of the motor to delete the controller for."
+        }
+      ],
+      "category": "Motor Controller",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "MOTOR_OWNED",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "SET_CONTROLLER_FREQUENCY",
+      "code": "0x0A",
+      "direction": "client_to_controller",
+      "description": "This command sets the global update frequency (in Hz) of the closed-loop motor controller task. All motor controllers share a single control loop, so this frequency is global and affects every currently running controller as well as any created afterwards; the PID sampling time is updated to match. The requested value is clamped to the supported range of 1 to 1000 Hz (the 1000 Hz maximum is bounded by the 1 ms RTOS tick). The value is then quantized to the 1 ms RTOS tick (period_ms = 1000 / frequency), so effective frequencies are 1000/N Hz. A value of 0 is invalid and ignored. Defaults to 10 Hz (100 ms) at start-up.",
+      "properties": [
+        {
+          "name": "frequency",
+          "type": "uint16_t",
+          "range": [
+            1,
+            1000
+          ],
+          "description": "The controller update frequency in Hz. Valid range 1 to 1000 Hz; values outside are clamped, and 0 is ignored."
+        }
+      ],
+      "category": "Motor Controller",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "GET_CONTROLLER_FREQUENCY",
+      "code": "0x0B",
+      "direction": "client_to_controller",
+      "description": "This command retrieves the current global update frequency (in Hz) of the closed-loop motor controller task.",
+      "properties": [],
+      "response": {
+        "name": "frequency",
+        "type": "uint16_t",
+        "description": "The current controller update frequency in Hz (1 to 1000 Hz).",
+        "direction": "controller_to_client"
+      },
+      "category": "Motor Controller",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "INITIALIZE_ENCODER",
+      "code": "0x11",
+      "direction": "client_to_controller",
+      "description": "This command initializes an encoder and prepares it for use. Stops controllers using this encoder before changing its configuration.",
+      "properties": [
+        {
+          "name": "encoder_index",
+          "type": "uint8_t",
+          "range": [
+            0,
+            3
+          ],
+          "description": "The index of the encoder to initialize."
+        },
+        {
+          "name": "encoder_resolution",
+          "type": "double",
+          "description": "Encoder resolution in ticks per revolution. The value can not be negative or zero."
+        },
+        {
+          "name": "is_reversed",
+          "type": "bool",
+          "default": false,
+          "description": "Whether or not the encoder is reversed."
+        }
+      ],
+      "category": "Encoder",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "GET_ENCODER_VALUE",
+      "code": "0x12",
+      "direction": "client_to_controller",
+      "description": "This command retrieves the current value of the encoder.",
+      "properties": [
+        {
+          "name": "encoder_index",
+          "type": "uint8_t",
+          "range": [
+            0,
+            3
+          ],
+          "description": "The index of the encoder to retrieve the value for."
+        }
+      ],
+      "response": {
+        "name": "encoderValue",
+        "type": "uint16_t",
+        "description": "The current value of the encoder.",
+        "direction": "controller_to_client"
+      },
+      "category": "Encoder",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "ENCODER_NOT_INITIALIZED",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "START_ENCODER_ODOMETRY",
+      "code": "0x13",
+      "direction": "client_to_controller",
+      "description": "This command starts the odometry calculation for the specified encoder.",
+      "properties": [
+        {
+          "name": "encoder_index",
+          "type": "uint8_t",
+          "range": [
+            0,
+            3
+          ],
+          "description": "The index of the encoder to start the odometry calculation for."
+        }
+      ],
+      "category": "Encoder",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "ENCODER_NOT_INITIALIZED"
+      ]
+    },
+    {
+      "command": "RESET_ENCODER_ODOMETRY",
+      "code": "0x14",
+      "direction": "client_to_controller",
+      "description": "This command resets the odometry calculation for the specified encoder.",
+      "properties": [
+        {
+          "name": "encoder_index",
+          "type": "uint8_t",
+          "range": [
+            0,
+            3
+          ],
+          "description": "The index of the encoder to reset the odometry calculation for."
+        }
+      ],
+      "category": "Encoder",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "STOP_ENCODER_ODOMETRY",
+      "code": "0x15",
+      "direction": "client_to_controller",
+      "description": "This command stops the odometry calculation for the specified encoder.",
+      "properties": [
+        {
+          "name": "encoder_index",
+          "type": "uint8_t",
+          "range": [
+            0,
+            3
+          ],
+          "description": "The index of the encoder to stop the odometry calculation for."
+        }
+      ],
+      "category": "Encoder",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "GET_ENCODER_ODOMETRY",
+      "code": "0x16",
+      "direction": "client_to_controller",
+      "description": "This command retrieves the odometry of the specified encoder.",
+      "properties": [
+        {
+          "name": "encoder_index",
+          "type": "uint8_t",
+          "range": [
+            0,
+            3
+          ],
+          "description": "The index of the encoder to retrieve the odometry for."
+        }
+      ],
+      "response": {
+        "name": "sample",
+        "type": "encoder_odometry_sample",
+        "description": "Timestamped odometry measurement. See errors for missing INIT, clock readiness, odometry initialization, and sample availability.",
+        "direction": "controller_to_client"
+      },
+      "category": "Encoder",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "ODOMETRY_NOT_INITIALIZED",
+        "SAMPLE_NOT_AVAILABLE"
+      ]
+    },
+    {
+      "command": "SET_ODOMETRY_FREQUENCY",
+      "code": "0x17",
+      "direction": "client_to_controller",
+      "description": "This command sets the global update frequency (in Hz) of the odometry task. A single odometry task integrates all encoder and platform odometry, so this frequency is global. The requested value is clamped to the supported range of 1 to 1000 Hz (the 1000 Hz maximum is bounded by the 1 ms RTOS tick). The value is then quantized to the 1 ms RTOS tick (period_ms = 1000 / frequency), so effective frequencies are 1000/N Hz. A value of 0 is invalid and ignored. Defaults to 20 Hz (50 ms) at start-up. Rejected if the resulting calculation period exceeds half of any active subscription interval on either transport.",
+      "properties": [
+        {
+          "name": "frequency",
+          "type": "uint16_t",
+          "range": [
+            1,
+            1000
+          ],
+          "description": "The odometry update frequency in Hz. Valid range 1 to 1000 Hz; values outside are clamped, and 0 is ignored."
+        }
+      ],
+      "category": "Encoder",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "GET_ODOMETRY_FREQUENCY",
+      "code": "0x18",
+      "direction": "client_to_controller",
+      "description": "This command retrieves the current global update frequency (in Hz) of the odometry task.",
+      "properties": [],
+      "response": {
+        "name": "frequency",
+        "type": "uint16_t",
+        "description": "The current odometry update frequency in Hz (1 to 1000 Hz).",
+        "direction": "controller_to_client"
+      },
+      "category": "Encoder",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "INITIALIZE_GPIO_PIN",
+      "code": "0x20",
+      "direction": "client_to_controller",
+      "description": "This command initializes a digital pin and prepares it for use.",
+      "properties": [
+        {
+          "name": "pin_number",
+          "type": "uint8_t",
+          "description": "The number of the pin to initialize."
+        },
+        {
+          "name": "mode",
+          "type": "uint8_t",
+          "description": "Set digital pin as input or output. Modes: 0 = INPUT_PULLDOWN, 1 = INPUT_PULLUP, 2 = INPUT_NOPULL, 3 = OUTPUT."
+        }
+      ],
+      "category": "GPIO",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "SET_GPIO_PIN_STATE",
+      "code": "0x21",
+      "direction": "client_to_controller",
+      "description": "This command sets the specified pin to a state.",
+      "properties": [
+        {
+          "name": "pin_number",
+          "type": "uint8_t",
+          "description": "The number of the pin to set to a state."
+        },
+        {
+          "name": "state",
+          "type": "uint8_t",
+          "description": "The state of the pin. 0 = LOW, 1 = HIGH."
+        }
+      ],
+      "category": "GPIO",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "GET_GPIO_PIN_STATE",
+      "code": "0x22",
+      "direction": "client_to_controller",
+      "description": "This command gets the state of the specified pin.",
+      "properties": [
+        {
+          "name": "pin_number",
+          "type": "uint8_t",
+          "description": "The number of the pin to get the state for."
+        }
+      ],
+      "response": {
+        "name": "state",
+        "type": "uint8_t",
+        "description": "The state of the pin. 0 = LOW, 1 = HIGH.",
+        "direction": "controller_to_client"
+      },
+      "category": "GPIO",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "TOGGLE_GPIO_PIN_STATE",
+      "code": "0x23",
+      "direction": "client_to_controller",
+      "description": "This command toggles the specified pin.",
+      "properties": [
+        {
+          "name": "pin_number",
+          "type": "uint8_t",
+          "description": "The number of the pin to toggle."
+        }
+      ],
+      "category": "GPIO",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "SET_STATUS_LED_STATE",
+      "code": "0x25",
+      "direction": "client_to_controller",
+      "description": "This command sets the status LED to a state.",
+      "properties": [
+        {
+          "name": "state",
+          "type": "uint8_t",
+          "description": "The state of the status LED. 0 = OFF, 1 = ON."
+        }
+      ],
+      "category": "GPIO",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "TOGGLE_STATUS_LED_STATE",
+      "code": "0x26",
+      "direction": "client_to_controller",
+      "description": "This command toggles the status LED.",
+      "properties": [],
+      "category": "GPIO",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "INITIALIZE_MECANUM_PLATFORM",
+      "code": "0x30",
+      "direction": "client_to_controller",
+      "description": "This command initializes a mecanum (4-wheel) platform and prepares it for use. It uses motor and encoder indices 0, 1, 2 and 3 (one per wheel), which correspond to the is_reversed_0..3 and is_encoder_reversed_0..3 parameters. All four motor slots are occupied by this platform.",
+      "properties": [
+        {
+          "name": "is_reversed_0",
+          "type": "bool",
+          "default": false,
+          "description": "Determines if motor 0 is reversed."
+        },
+        {
+          "name": "is_reversed_1",
+          "type": "bool",
+          "default": false,
+          "description": "Determines if motor 1 is reversed."
+        },
+        {
+          "name": "is_reversed_2",
+          "type": "bool",
+          "default": false,
+          "description": "Determines if motor 2 is reversed."
+        },
+        {
+          "name": "is_reversed_3",
+          "type": "bool",
+          "default": false,
+          "description": "Determines if motor 3 is reversed."
+        },
+        {
+          "name": "is_encoder_reversed_0",
+          "type": "bool",
+          "default": false,
+          "description": "Reverses encoder 0 counting direction, independently of motor 0's is_reversed_0. Set so the closed-loop feedback is negative (flip if the wheel runs away when given a target speed)."
+        },
+        {
+          "name": "is_encoder_reversed_1",
+          "type": "bool",
+          "default": false,
+          "description": "Reverses encoder 1 counting direction, independently of motor 1's is_reversed_1. Set so the closed-loop feedback is negative (flip if the wheel runs away when given a target speed)."
+        },
+        {
+          "name": "is_encoder_reversed_2",
+          "type": "bool",
+          "default": false,
+          "description": "Reverses encoder 2 counting direction, independently of motor 2's is_reversed_2. Set so the closed-loop feedback is negative (flip if the wheel runs away when given a target speed)."
+        },
+        {
+          "name": "is_encoder_reversed_3",
+          "type": "bool",
+          "default": false,
+          "description": "Reverses encoder 3 counting direction, independently of motor 3's is_reversed_3. Set so the closed-loop feedback is negative (flip if the wheel runs away when given a target speed)."
+        },
+        {
+          "name": "length",
+          "type": "double",
+          "default": 1,
+          "description": "Length of the platform in meters."
+        },
+        {
+          "name": "width",
+          "type": "double",
+          "default": 1,
+          "description": "Width of the platform in meters."
+        },
+        {
+          "name": "wheels_diameter",
+          "type": "double",
+          "default": 1,
+          "description": "Diameter of the robot wheels in meters."
+        },
+        {
+          "name": "encoder_resolution",
+          "type": "double",
+          "default": 0,
+          "description": "Encoder resolution in ticks per revolution. The value can not be negative. If platform does not have encoders, the value should be set to zero."
+        }
+      ],
+      "category": "Platform",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "INITIALIZE_OMNI_PLATFORM",
+      "code": "0x31",
+      "direction": "client_to_controller",
+      "description": "This command initializes an omni (3-wheel) platform and prepares it for use. It uses motor and encoder indices 0, 1 and 2 (one per wheel), which correspond to the is_reversed_0..2 and is_encoder_reversed_0..2 parameters. Motor index 3 is not used by this platform and stays free for other purposes.",
+      "properties": [
+        {
+          "name": "is_reversed_0",
+          "type": "bool",
+          "default": false,
+          "description": "Determines if motor 0 is reversed."
+        },
+        {
+          "name": "is_reversed_1",
+          "type": "bool",
+          "default": false,
+          "description": "Determines if motor 1 is reversed."
+        },
+        {
+          "name": "is_reversed_2",
+          "type": "bool",
+          "default": false,
+          "description": "Determines if motor 2 is reversed."
+        },
+        {
+          "name": "is_encoder_reversed_0",
+          "type": "bool",
+          "default": false,
+          "description": "Reverses encoder 0 counting direction, independently of motor 0's is_reversed_0. Set so the closed-loop feedback is negative (flip if the wheel runs away when given a target speed)."
+        },
+        {
+          "name": "is_encoder_reversed_1",
+          "type": "bool",
+          "default": false,
+          "description": "Reverses encoder 1 counting direction, independently of motor 1's is_reversed_1. Set so the closed-loop feedback is negative (flip if the wheel runs away when given a target speed)."
+        },
+        {
+          "name": "is_encoder_reversed_2",
+          "type": "bool",
+          "default": false,
+          "description": "Reverses encoder 2 counting direction, independently of motor 2's is_reversed_2. Set so the closed-loop feedback is negative (flip if the wheel runs away when given a target speed)."
+        },
+        {
+          "name": "wheels_diameter",
+          "type": "double",
+          "default": 1,
+          "description": "Diameter of the robot wheels in millimeters."
+        },
+        {
+          "name": "robot_radius",
+          "type": "double",
+          "default": 1,
+          "description": "Distance berween the center of the robot and the center of the wheels in millimeters."
+        },
+        {
+          "name": "encoder_resolution",
+          "type": "double",
+          "default": 0,
+          "description": "Encoder resolution in ticks per revolution. The value can not be negative. If platform does not have encoders, the value should be set to zero."
+        }
+      ],
+      "category": "Platform",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "INITIALIZE_DIFFERENTIAL_PLATFORM",
+      "code": "0x32",
+      "direction": "client_to_controller",
+      "description": "This command initializes a differential (2-wheel) platform and prepares it for use. It uses motor and encoder index 0 for the left wheel and index 1 for the right wheel, which correspond to the is_reversed_0/1 and is_encoder_reversed_0/1 parameters. Motor indices 2 and 3 are not used by this platform and stay free for other purposes.",
+      "properties": [
+        {
+          "name": "is_reversed_0",
+          "type": "bool",
+          "default": false,
+          "description": "Determines if motor 0 is reversed."
+        },
+        {
+          "name": "is_reversed_1",
+          "type": "bool",
+          "default": false,
+          "description": "Determines if motor 1 is reversed."
+        },
+        {
+          "name": "is_encoder_reversed_0",
+          "type": "bool",
+          "default": false,
+          "description": "Reverses encoder 0 counting direction, independently of motor 0's is_reversed_0. Set so the closed-loop feedback is negative (flip if the wheel runs away when given a target speed)."
+        },
+        {
+          "name": "is_encoder_reversed_1",
+          "type": "bool",
+          "default": false,
+          "description": "Reverses encoder 1 counting direction, independently of motor 1's is_reversed_1. Set so the closed-loop feedback is negative (flip if the wheel runs away when given a target speed)."
+        },
+        {
+          "name": "wheel_diameter",
+          "type": "double",
+          "default": 1,
+          "description": "Diameter of the robot wheels in meters."
+        },
+        {
+          "name": "wheel_base",
+          "type": "double",
+          "default": 1,
+          "description": "Distance between the two wheels in meters."
+        },
+        {
+          "name": "encoder_resolution",
+          "type": "double",
+          "default": 0,
+          "description": "Encoder resolution in ticks per revolution. The value can not be negative. If platform does not have encoders, the value should be set to zero."
+        }
+      ],
+      "category": "Platform",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "SET_PLATFORM_VELOCITY",
+      "code": "0x40",
+      "direction": "client_to_controller",
+      "description": "This command sets the velocity for the platform in PWM. Stops platform velocity and position control before applying PWM.",
+      "properties": [
+        {
+          "name": "x",
+          "type": "double",
+          "description": "X component of platform velocity in PWM",
+          "range": [
+            -100.0,
+            100.0
+          ]
+        },
+        {
+          "name": "y",
+          "type": "double",
+          "description": "Y component of platform velocity in PWM",
+          "range": [
+            -100.0,
+            100.0
+          ]
+        },
+        {
+          "name": "t",
+          "type": "double",
+          "description": "Theta component of platform velocity in PWM",
+          "range": [
+            -100.0,
+            100.0
+          ]
+        }
+      ],
+      "category": "Platform",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "PLATFORM_NOT_INITIALIZED",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "START_PLATFORM_CONTROLLER",
+      "code": "0x41",
+      "direction": "client_to_controller",
+      "description": "This command sets the controller for the platform. Firmware 2.3.1 uses direct P+I+D PWM output with saturation anti-windup; retune gains from earlier builds.",
+      "properties": [
+        {
+          "name": "kp",
+          "type": "double",
+          "description": "kp gain (PWM percentage points per rad/s), finite and nonnegative."
+        },
+        {
+          "name": "ki",
+          "type": "double",
+          "description": "ki gain (PWM percentage points per rad), finite and nonnegative."
+        },
+        {
+          "name": "kd",
+          "type": "double",
+          "description": "kd gain (PWM percentage points per rad/s^2), finite and nonnegative."
+        },
+        {
+          "name": "integral_limit",
+          "type": "double",
+          "description": "Maximum absolute integral contribution in PWM percentage points (0..100). Zero disables integral action.",
+          "range": [
+            0,
+            100
+          ]
+        }
+      ],
+      "category": "Platform",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "PLATFORM_NOT_INITIALIZED",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "SET_PLATFORM_TARGET_VELOCITY",
+      "code": "0x42",
+      "direction": "client_to_controller",
+      "description": "This command set the target velocity for the platform in meters per second. Cancels platform position control; initialize it again before another pose target.",
+      "properties": [
+        {
+          "name": "x",
+          "type": "double",
+          "description": "X component of platform velocity in meters per second"
+        },
+        {
+          "name": "y",
+          "type": "double",
+          "description": "Y component of platform velocity in meters per second"
+        },
+        {
+          "name": "t",
+          "type": "double",
+          "description": "Theta component of platform velocity in radians per second"
+        }
+      ],
+      "category": "Platform",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "PLATFORM_NOT_INITIALIZED",
+        "CONTROLLER_NOT_INITIALIZED",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "GET_PLATFORM_CURRENT_VELOCITY",
+      "code": "0x43",
+      "direction": "client_to_controller",
+      "description": "This command gets the current velocity of the platform in meters per second.",
+      "response": {
+        "name": "platform_velocity",
+        "type": "object",
+        "description": "The current velocity of the platform in meters per second.",
+        "direction": "controller_to_client"
+      },
+      "category": "Platform",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "STOP_PLATFORM_CONTROLLER",
+      "code": "0x44",
+      "direction": "client_to_controller",
+      "description": "This command stops the controller for the platform.",
+      "category": "Platform",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR"
+      ]
+    },
+    {
+      "command": "START_PLATFORM_ODOMETRY",
+      "code": "0x45",
+      "direction": "client_to_controller",
+      "description": "This command starts the odometry calculation for the platform.",
+      "category": "Platform",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "PLATFORM_NOT_INITIALIZED"
+      ]
+    },
+    {
+      "command": "RESET_PLATFORM_ODOMETRY",
+      "code": "0x46",
+      "direction": "client_to_controller",
+      "description": "This command resets the odometry calculation for the platform.",
+      "category": "Platform",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "STOP_PLATFORM_ODOMETRY",
+      "code": "0x47",
+      "direction": "client_to_controller",
+      "description": "This command stops the odometry calculation for the platform.",
+      "category": "Platform",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "GET_PLATFORM_ODOMETRY",
+      "code": "0x48",
+      "direction": "client_to_controller",
+      "description": "This command retrieves the odometry of the platform in meters and radians.",
+      "response": {
+        "name": "sample",
+        "type": "platform_odometry_sample",
+        "description": "Timestamped odometry measurement. See errors for missing INIT, clock readiness, odometry initialization, and sample availability.",
+        "direction": "controller_to_client"
+      },
+      "category": "Platform",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "ODOMETRY_NOT_INITIALIZED",
+        "SAMPLE_NOT_AVAILABLE"
+      ]
+    },
+    {
+      "command": "BRAKE_PLATFORM",
+      "code": "0x49",
+      "direction": "client_to_controller",
+      "description": "Stops the platform velocity and position controllers and applies a short brake to this platform's wheel motors using the selected board's motor control model. Other motors are not affected. The brake resists motion until a new command is issued; it does not regulate or hold a specific position. Call START_PLATFORM_CONTROLLER again to resume closed-loop platform control.",
+      "category": "Platform",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR"
+      ]
+    },
+    {
+      "command": "COAST_PLATFORM",
+      "code": "0x4A",
+      "direction": "client_to_controller",
+      "description": "This command lets all of this platform's wheel motors coast freely (high impedance) so they spin down without resistance, and stops the platform velocity controller if it is running (you must call START_PLATFORM_CONTROLLER again to resume closed-loop platform control). Motors used outside this platform are not affected. The motors spin down without resistance.",
+      "category": "Platform",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR"
+      ]
+    },
+    {
+      "command": "INIT",
+      "code": "0x70",
+      "direction": "client_to_controller",
+      "category": "Connection",
+      "description": "Exchange identity and start per-connection clock initialization. Wait for READY before odometry. Clients with wall-clock capability answer controller TIME_SYNC_REQUEST messages; other clients use uptime. Repeating INIT restarts clock setup without altering motor state.",
+      "properties": [
+        {
+          "name": "sdk_type",
+          "type": "uint8_t",
+          "description": "0 unknown, 1 Python, 2 JavaScript, 3 Arduino."
+        },
+        {
+          "name": "client_version_major",
+          "type": "uint8_t",
+          "description": "Client library major version."
+        },
+        {
+          "name": "client_version_minor",
+          "type": "uint8_t",
+          "description": "Client library minor version."
+        },
+        {
+          "name": "client_version_patch",
+          "type": "uint8_t",
+          "description": "Client library patch version."
+        },
+        {
+          "name": "protocol_major",
+          "type": "uint8_t",
+          "description": "Client protocol major version."
+        },
+        {
+          "name": "protocol_minor",
+          "type": "uint8_t",
+          "description": "Minimum required protocol minor version."
+        },
+        {
+          "name": "protocol_patch",
+          "type": "uint8_t",
+          "description": "Client protocol patch version, informational; compatibility is determined by major and minor."
+        },
+        {
+          "name": "client_capabilities",
+          "type": "uint8_t",
+          "description": "Bit 0 (1): valid wall-clock time available. Bit 1 (2): client supports telemetry subscriptions. Combine as 3 for both; 0 for neither. Other bits must be zero. Declaring support does not start time synchronization or create subscriptions."
+        }
+      ],
+      "response": {
+        "name": "identity",
+        "type": "init_response",
+        "description": "Board revision, protocol version and firmware build identity. Failures use ERROR with the failed command ID.",
+        "direction": "controller_to_client"
+      },
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INCOMPATIBLE_PROTOCOL",
+        "TIME_SYNC_FAILED"
+      ]
+    },
+    {
+      "command": "ERROR",
+      "code": "0x7F",
+      "direction": "controller_to_client",
+      "description": "Response-only error message. Payload: failed command ID (uint8_t), error code (uint8_t). Uses the common length and command header; never accepted as a request.",
+      "properties": [
+        {
+          "name": "failed_command",
+          "type": "uint8_t",
+          "description": "Command ID of the failed request; zero if unavailable."
+        },
+        {
+          "name": "error_code",
+          "type": "uint8_t",
+          "description": "Shared nonzero protocol error code."
+        }
+      ],
+      "errors": []
+    },
+    {
+      "command": "TIME_SYNC_REQUEST",
+      "code": "0x71",
+      "direction": "controller_to_client",
+      "category": "Connection",
+      "description": "Controller-initiated timing request. Client echoes the header message ID in TIME_SYNC_RESPONSE.",
+      "properties": [],
+      "errors": []
+    },
+    {
+      "command": "TIME_SYNC_RESPONSE",
+      "code": "0x72",
+      "direction": "client_to_controller",
+      "category": "Connection",
+      "description": "Reply to a pending controller timing request; consumed without an ACK.",
+      "properties": [
+        {
+          "name": "host_receive_us",
+          "type": "uint64_t",
+          "description": "Client wall-clock Unix microseconds when TIME_SYNC_REQUEST was received."
+        },
+        {
+          "name": "host_send_us",
+          "type": "uint64_t",
+          "description": "Client wall-clock Unix microseconds immediately before its reply is sent."
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT"
+      ]
+    },
+    {
+      "command": "READY",
+      "code": "0x73",
+      "direction": "controller_to_client",
+      "category": "Connection",
+      "description": "Initial clock setup completed; echoes INIT message ID. Client can now request odometry.",
+      "properties": [
+        {
+          "name": "clock_mode",
+          "type": "uint8_t",
+          "description": "0 controller uptime; 1 synchronized Unix wall time."
+        }
+      ],
+      "errors": []
+    },
+    {
+      "command": "SET_TIME_SYNC_INTERVAL",
+      "code": "0x74",
+      "direction": "client_to_controller",
+      "category": "Connection",
+      "description": "Set independent time-sync refresh interval for this connection. Default 30000 ms.",
+      "properties": [
+        {
+          "name": "interval_ms",
+          "type": "uint32_t",
+          "description": "Periodic resynchronization interval in milliseconds.",
+          "range": [
+            1000,
+            3600000
+          ]
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "GET_TIME_STATUS",
+      "code": "0x75",
+      "direction": "client_to_controller",
+      "category": "Connection",
+      "description": "Read this connection's clock mode, quality, interval and age.",
+      "properties": [],
+      "response": {
+        "name": "clock",
+        "type": "time_status",
+        "description": "Clock status. Quality 0 unready, 1 valid, 2 stale.",
+        "direction": "controller_to_client"
+      },
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "PING",
+      "code": "0x76",
+      "direction": "client_to_controller",
+      "category": "Connection",
+      "description": "Refresh connection activity and receive an empty ACK. Any structurally valid client command also refreshes activity; malformed frames do not.",
+      "properties": [],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "SET_HEARTBEAT_CONFIG",
+      "code": "0x77",
+      "direction": "client_to_controller",
+      "category": "Connection",
+      "description": "Configure this session watchdog after READY. Timeout coasts all motors, clears subscriptions and requires a new INIT before further operations. Disabling also removes this session subscriptions. INIT resets to disabled, 500 ms.",
+      "properties": [
+        {
+          "name": "enabled",
+          "type": "bool",
+          "description": "Enable monitoring; disabled initially for compatibility."
+        },
+        {
+          "name": "timeout_ms",
+          "type": "uint32_t",
+          "description": "Monotonic receive timeout. Default 500 ms; send PING after at most timeout/5 of idle time (100 ms with the default).",
+          "range": [
+            100,
+            60000
+          ]
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY"
+      ]
+    },
+    {
+      "command": "GET_HEARTBEAT_CONFIG",
+      "code": "0x78",
+      "direction": "client_to_controller",
+      "category": "Connection",
+      "description": "Read this session watchdog configuration.",
+      "properties": [],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED"
+      ],
+      "response": {
+        "name": "value",
+        "type": "heartbeat_config",
+        "description": "Read this session watchdog configuration.",
+        "direction": "controller_to_client"
+      }
+    },
+    {
+      "command": "SUBSCRIBE_ODOMETRY",
+      "code": "0x79",
+      "direction": "client_to_controller",
+      "category": "Connection",
+      "description": "Publish the latest completed sample using the requested scheduling interval without rounding it to calculation ticks. Delivery is subject to transport capacity and task scheduling. Requires READY, an enabled heartbeat and running odometry. Replaces an existing subscription for this source. Interval must be at least twice the calculation period. No renewal is needed. Stop/reset of calculation pauses samples until fresh measurements exist; unsubscribe, INIT, disconnect or watchdog timeout removes subscriptions.",
+      "properties": [
+        {
+          "name": "source",
+          "type": "uint8_t",
+          "description": "0 through 3 select encoder odometry; 4 selects platform odometry.",
+          "range": [
+            0,
+            4
+          ]
+        },
+        {
+          "name": "interval_ms",
+          "type": "uint32_t",
+          "description": "Delivery interval, independent of calculation scheduling.",
+          "range": [
+            2,
+            3600000
+          ]
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "ODOMETRY_NOT_INITIALIZED"
+      ]
+    },
+    {
+      "command": "UNSUBSCRIBE_ODOMETRY",
+      "code": "0x7a",
+      "direction": "client_to_controller",
+      "category": "Connection",
+      "description": "Remove this source subscription; succeeds if already absent. Does not stop odometry calculation.",
+      "properties": [
+        {
+          "name": "source",
+          "type": "uint8_t",
+          "description": "0 through 3 select encoder odometry; 4 selects platform odometry.",
+          "range": [
+            0,
+            4
+          ]
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED"
+      ]
+    },
+    {
+      "command": "ENCODER_ODOMETRY_EVENT",
+      "code": "0x7b",
+      "direction": "controller_to_client",
+      "category": "Connection",
+      "description": "Unsolicited latest encoder sample, message_id zero. No response is expected. Slow transports skip intermediate samples rather than queueing stale history.",
+      "properties": [
+        {
+          "name": "encoder_index",
+          "type": "uint8_t",
+          "description": "Encoder index."
+        },
+        {
+          "name": "timestamp_us",
+          "type": "uint64_t",
+          "description": "Measurement timestamp in selected clock domain."
+        },
+        {
+          "name": "clock_mode",
+          "type": "uint8_t",
+          "description": "0 uptime, 1 Unix wall time."
+        },
+        {
+          "name": "clock_quality",
+          "type": "uint8_t",
+          "description": "1 valid, 2 stale."
+        },
+        {
+          "name": "angle",
+          "type": "double",
+          "description": "Encoder odometry radians."
+        }
+      ],
+      "errors": []
+    },
+    {
+      "command": "PLATFORM_ODOMETRY_EVENT",
+      "code": "0x7c",
+      "direction": "controller_to_client",
+      "category": "Connection",
+      "description": "Unsolicited latest platform sample, message_id zero. No response is expected. Timestamp is the measurement time, not the transmission time.",
+      "properties": [
+        {
+          "name": "timestamp_us",
+          "type": "uint64_t",
+          "description": "Measurement timestamp in selected clock domain."
+        },
+        {
+          "name": "clock_mode",
+          "type": "uint8_t",
+          "description": "0 uptime, 1 Unix wall time."
+        },
+        {
+          "name": "clock_quality",
+          "type": "uint8_t",
+          "description": "1 valid, 2 stale."
+        },
+        {
+          "name": "x",
+          "type": "double",
+          "description": "X meters."
+        },
+        {
+          "name": "y",
+          "type": "double",
+          "description": "Y meters."
+        },
+        {
+          "name": "t",
+          "type": "double",
+          "description": "Heading radians."
+        }
+      ],
+      "errors": []
+    },
+    {
+      "command": "POLL_TELEMETRY",
+      "code": "0x7d",
+      "direction": "client_to_controller",
+      "category": "Connection",
+      "description": "I2C master service request. Allows at most one due odometry event before its empty ACK, so the master can clock out telemetry without waiting indefinitely when no sample is available. USB clients receive events automatically and do not need this command.",
+      "properties": [],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY"
+      ]
+    },
+    {
+      "command": "INITIALIZE_MOTOR_POSITION_CONTROLLER",
+      "code": "0x0C",
+      "direction": "client_to_controller",
+      "description": "Initialize a bounded proportional position loop over an already running motor velocity controller. Zero is the current encoder position; initially holds zero. Stop/delete/reinitialize of velocity control discards position tuning.",
+      "properties": [
+        {
+          "name": "motor_index",
+          "type": "uint8_t",
+          "description": "Motor index.",
+          "range": [
+            0,
+            3
+          ]
+        },
+        {
+          "name": "kp",
+          "type": "double",
+          "description": "Position gain in inverse seconds; must be positive."
+        },
+        {
+          "name": "max_speed",
+          "type": "double",
+          "description": "Maximum commanded speed in radians per second; must be positive."
+        },
+        {
+          "name": "tolerance",
+          "type": "double",
+          "description": "Position tolerance in radians; must be nonnegative."
+        }
+      ],
+      "category": "Motor position",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED",
+        "CONTROLLER_NOT_INITIALIZED",
+        "MOTOR_OWNED"
+      ]
+    },
+    {
+      "command": "RESET_MOTOR_POSITION",
+      "code": "0x0D",
+      "direction": "client_to_controller",
+      "description": "Zero the motor position and target at the current encoder count, clear velocity PID history and output, and hold zero. Requires initialized position control. Does not reset independent encoder odometry.",
+      "properties": [
+        {
+          "name": "motor_index",
+          "type": "uint8_t",
+          "description": "Motor index.",
+          "range": [
+            0,
+            3
+          ]
+        }
+      ],
+      "category": "Motor position",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED",
+        "CONTROLLER_NOT_INITIALIZED",
+        "MOTOR_OWNED"
+      ]
+    },
+    {
+      "command": "SET_MOTOR_POSITION",
+      "code": "0x0E",
+      "direction": "client_to_controller",
+      "description": "Set an absolute multi-turn angle in radians relative to the last position initialization/reset. Requires initialized position and velocity controllers. Reactivates position mode after a velocity override.",
+      "properties": [
+        {
+          "name": "motor_index",
+          "type": "uint8_t",
+          "description": "Motor index.",
+          "range": [
+            0,
+            3
+          ]
+        },
+        {
+          "name": "position",
+          "type": "double",
+          "description": "Absolute target in radians; not wrapped."
+        }
+      ],
+      "category": "Motor position",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED",
+        "CONTROLLER_NOT_INITIALIZED",
+        "MOTOR_OWNED"
+      ]
+    },
+    {
+      "command": "GET_MOTOR_POSITION",
+      "code": "0x0F",
+      "direction": "client_to_controller",
+      "description": "Read the latest motor position in radians in the position-controller frame. Requires initialized position control.",
+      "properties": [
+        {
+          "name": "motor_index",
+          "type": "uint8_t",
+          "description": "Motor index.",
+          "range": [
+            0,
+            3
+          ]
+        }
+      ],
+      "category": "Motor position",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED",
+        "CONTROLLER_NOT_INITIALIZED",
+        "MOTOR_OWNED"
+      ],
+      "response": {
+        "name": "position",
+        "type": "double",
+        "direction": "controller_to_client",
+        "description": "Latest sampled continuous angle in radians."
+      }
+    },
+    {
+      "command": "INITIALIZE_PLATFORM_POSITION_CONTROLLER",
+      "code": "0x4B",
+      "direction": "client_to_controller",
+      "description": "Initialize bounded pose control after START_PLATFORM_CONTROLLER. Starts odometry if needed, preserves its world frame and zeros velocity targets. No motion until SET_PLATFORM_POSITION. Supports omni, mecanum and differential bases.",
+      "properties": [
+        {
+          "name": "linear_kp",
+          "type": "double",
+          "description": "Translation gain in inverse seconds; positive."
+        },
+        {
+          "name": "angular_kp",
+          "type": "double",
+          "description": "Heading gain in inverse seconds; positive."
+        },
+        {
+          "name": "max_linear_speed",
+          "type": "double",
+          "description": "Maximum translation speed in meters per second; positive."
+        },
+        {
+          "name": "max_angular_speed",
+          "type": "double",
+          "description": "Maximum angular speed in radians per second; positive."
+        },
+        {
+          "name": "position_tolerance",
+          "type": "double",
+          "description": "Translation tolerance in meters; nonnegative."
+        },
+        {
+          "name": "heading_tolerance",
+          "type": "double",
+          "description": "Heading tolerance in radians; nonnegative."
+        }
+      ],
+      "category": "Platform position",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED",
+        "CONTROLLER_NOT_INITIALIZED",
+        "PLATFORM_NOT_INITIALIZED",
+        "ENCODER_NOT_INITIALIZED"
+      ]
+    },
+    {
+      "command": "RESET_PLATFORM_POSITION",
+      "code": "0x4C",
+      "direction": "client_to_controller",
+      "description": "Cancel the pose target, zero velocity targets, and reset platform odometry to (0,0,0). Keeps position tuning. Wait for a fresh odometry sample before setting another target.",
+      "properties": [],
+      "category": "Platform position",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED",
+        "CONTROLLER_NOT_INITIALIZED",
+        "PLATFORM_NOT_INITIALIZED"
+      ]
+    },
+    {
+      "command": "SET_PLATFORM_POSITION",
+      "code": "0x4D",
+      "direction": "client_to_controller",
+      "description": "Set absolute (x,y,t) in the current odometry world frame: meters, meters, radians. Heading uses the shortest angular path. Requires initialized position control and fresh odometry. Differential bases approach the point before aligning final heading.",
+      "properties": [
+        {
+          "name": "x",
+          "type": "double",
+          "description": "World x position in meters."
+        },
+        {
+          "name": "y",
+          "type": "double",
+          "description": "World y position in meters."
+        },
+        {
+          "name": "t",
+          "type": "double",
+          "description": "World heading in radians, positive counterclockwise."
+        }
+      ],
+      "category": "Platform position",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED",
+        "CONTROLLER_NOT_INITIALIZED",
+        "PLATFORM_NOT_INITIALIZED",
+        "ODOMETRY_NOT_INITIALIZED",
+        "SAMPLE_NOT_AVAILABLE"
+      ]
+    },
+    {
+      "command": "INITIALIZE_MOTOR_POSITION_PID_CONTROLLER",
+      "code": "0x10",
+      "direction": "client_to_controller",
+      "description": "Protocol 2.3: initialize a position PID over the existing velocity controller. Initialize a bounded position PID loop over an already running motor velocity controller. Zero is the current encoder position; initially holds zero. Stop/delete/reinitialize of velocity control discards position tuning. Clears position PID history. Ki and Kd may be zero to disable I and D. Integral limits bound the integral velocity contribution.",
+      "properties": [
+        {
+          "name": "motor_index",
+          "type": "uint8_t",
+          "description": "Motor index.",
+          "range": [
+            0,
+            3
+          ]
+        },
+        {
+          "name": "kp",
+          "type": "double",
+          "description": "Position gain in inverse seconds; must be positive."
+        },
+        {
+          "name": "max_speed",
+          "type": "double",
+          "description": "Maximum commanded speed in radians per second; must be positive."
+        },
+        {
+          "name": "tolerance",
+          "type": "double",
+          "description": "Position tolerance in radians; must be nonnegative."
+        },
+        {
+          "name": "ki",
+          "type": "double",
+          "description": "Integral gain (1/s^2), nonnegative."
+        },
+        {
+          "name": "kd",
+          "type": "double",
+          "description": "Derivative gain, dimensionless and nonnegative."
+        },
+        {
+          "name": "integral_limit",
+          "type": "double",
+          "description": "Maximum absolute integral contribution (rad/s), nonnegative."
+        }
+      ],
+      "category": "Motor position",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED",
+        "CONTROLLER_NOT_INITIALIZED",
+        "MOTOR_OWNED"
+      ]
+    },
+    {
+      "command": "INITIALIZE_PLATFORM_POSITION_PID_CONTROLLER",
+      "code": "0x4E",
+      "direction": "client_to_controller",
+      "description": "Protocol 2.3: initialize a position PID over the existing velocity controller. Initialize bounded pose control after START_PLATFORM_CONTROLLER. Starts odometry if needed, preserves its world frame and zeros velocity targets. No motion until SET_PLATFORM_POSITION. Supports omni, mecanum and differential bases. Clears position PID history. Ki and Kd may be zero to disable I and D. Integral limits bound the integral velocity contribution.",
+      "properties": [
+        {
+          "name": "linear_kp",
+          "type": "double",
+          "description": "Translation gain in inverse seconds; positive."
+        },
+        {
+          "name": "angular_kp",
+          "type": "double",
+          "description": "Heading gain in inverse seconds; positive."
+        },
+        {
+          "name": "max_linear_speed",
+          "type": "double",
+          "description": "Maximum translation speed in meters per second; positive."
+        },
+        {
+          "name": "max_angular_speed",
+          "type": "double",
+          "description": "Maximum angular speed in radians per second; positive."
+        },
+        {
+          "name": "position_tolerance",
+          "type": "double",
+          "description": "Translation tolerance in meters; nonnegative."
+        },
+        {
+          "name": "heading_tolerance",
+          "type": "double",
+          "description": "Heading tolerance in radians; nonnegative."
+        },
+        {
+          "name": "linear_ki",
+          "type": "double",
+          "description": "Translation integral gain (1/s^2), nonnegative."
+        },
+        {
+          "name": "linear_kd",
+          "type": "double",
+          "description": "Translation derivative gain, dimensionless and nonnegative."
+        },
+        {
+          "name": "linear_integral_limit",
+          "type": "double",
+          "description": "Translation integral contribution limit (m/s), nonnegative."
+        },
+        {
+          "name": "angular_ki",
+          "type": "double",
+          "description": "Heading integral gain (1/s^2), nonnegative."
+        },
+        {
+          "name": "angular_kd",
+          "type": "double",
+          "description": "Heading derivative gain, dimensionless and nonnegative."
+        },
+        {
+          "name": "angular_integral_limit",
+          "type": "double",
+          "description": "Heading integral contribution limit (rad/s), nonnegative."
+        }
+      ],
+      "category": "Platform position",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED",
+        "CONTROLLER_NOT_INITIALIZED",
+        "PLATFORM_NOT_INITIALIZED",
+        "ENCODER_NOT_INITIALIZED"
+      ]
+    }
+  ],
+  "objects": [
+    {
+      "name": "motor_controller_state",
+      "description": "The state of the controller for the specified motor.",
+      "properties": [
+        {
+          "name": "motor_index",
+          "type": "int8_t",
+          "description": "Index of the motor with the controller."
+        },
+        {
+          "name": "kp",
+          "type": "double",
+          "description": "Proportional constant of PID"
+        },
+        {
+          "name": "ki",
+          "type": "double",
+          "description": "Integral constant of PID"
+        },
+        {
+          "name": "kd",
+          "type": "double",
+          "description": "Derivative constant of PID"
+        },
+        {
+          "name": "target_speed",
+          "type": "double",
+          "description": "The target speed of the motor."
+        },
+        {
+          "name": "current_speed",
+          "type": "double",
+          "description": "The current speed of the motor."
+        },
+        {
+          "name": "error",
+          "type": "double",
+          "description": "The error of the motor."
+        },
+        {
+          "name": "output",
+          "type": "double",
+          "description": "The output of the motor."
+        }
+      ]
+    },
+    {
+      "name": "platform_velocity",
+      "description": "The velocity of the platform in meters per second.",
+      "properties": [
+        {
+          "name": "x",
+          "type": "double",
+          "description": "X component of platform velocity in meters per second"
+        },
+        {
+          "name": "y",
+          "type": "double",
+          "description": "Y component of platform velocity in meters per second"
+        },
+        {
+          "name": "t",
+          "type": "double",
+          "description": "Theta component of platform velocity in radians per second"
+        }
+      ]
+    },
+    {
+      "name": "platform_odometry",
+      "description": "The odometry of the platform in meters and radians.",
+      "properties": [
+        {
+          "name": "x",
+          "type": "double",
+          "description": "X component of platform odometry in meters"
+        },
+        {
+          "name": "y",
+          "type": "double",
+          "description": "Y component of platform odometry in meters"
+        },
+        {
+          "name": "t",
+          "type": "double",
+          "description": "Theta component of platform odometry in radians"
+        }
+      ]
+    },
+    {
+      "name": "init_response",
+      "description": "Packed 15-byte INIT response; firmware build ID is a Git revision, not a semantic release version.",
+      "properties": [
+        {
+          "name": "board_model",
+          "type": "uint8_t",
+          "description": "1 Kinisi motor controller."
+        },
+        {
+          "name": "board_major",
+          "type": "uint8_t",
+          "description": "Hardware revision major."
+        },
+        {
+          "name": "board_minor",
+          "type": "uint8_t",
+          "description": "Hardware revision minor."
+        },
+        {
+          "name": "board_patch",
+          "type": "uint8_t",
+          "description": "Hardware revision patch."
+        },
+        {
+          "name": "protocol_major",
+          "type": "uint8_t",
+          "description": "Protocol version major."
+        },
+        {
+          "name": "protocol_minor",
+          "type": "uint8_t",
+          "description": "Protocol version minor."
+        },
+        {
+          "name": "protocol_patch",
+          "type": "uint8_t",
+          "description": "Protocol version patch."
+        },
+        {
+          "name": "firmware_build_high",
+          "type": "uint32_t",
+          "description": "First eight hexadecimal digits of the firmware Git commit."
+        },
+        {
+          "name": "firmware_build_low",
+          "type": "uint32_t",
+          "description": "Next eight hexadecimal digits of the firmware Git commit."
+        }
+      ]
+    },
+    {
+      "name": "time_status",
+      "description": "Per-connection clock status.",
+      "properties": [
+        {
+          "name": "clock_mode",
+          "type": "uint8_t",
+          "description": "0 uptime, 1 Unix wall time."
+        },
+        {
+          "name": "clock_quality",
+          "type": "uint8_t",
+          "description": "0 unready, 1 valid, 2 stale."
+        },
+        {
+          "name": "interval_ms",
+          "type": "uint32_t",
+          "description": "Sync interval."
+        },
+        {
+          "name": "last_sync_age_us",
+          "type": "uint64_t",
+          "description": "Elapsed since successful sync; zero in uptime or unready mode."
+        }
+      ]
+    },
+    {
+      "name": "encoder_odometry_sample",
+      "description": "Odometry state with controller-captured timestamp and clock metadata.",
+      "properties": [
+        {
+          "name": "timestamp_us",
+          "type": "uint64_t",
+          "description": "Measurement timestamp in selected clock domain."
+        },
+        {
+          "name": "clock_mode",
+          "type": "uint8_t",
+          "description": "0 uptime, 1 Unix wall time."
+        },
+        {
+          "name": "clock_quality",
+          "type": "uint8_t",
+          "description": "1 valid, 2 stale."
+        },
+        {
+          "name": "angle",
+          "type": "double",
+          "description": "Encoder odometry radians."
+        }
+      ]
+    },
+    {
+      "name": "platform_odometry_sample",
+      "description": "Odometry state with controller-captured timestamp and clock metadata.",
+      "properties": [
+        {
+          "name": "timestamp_us",
+          "type": "uint64_t",
+          "description": "Measurement timestamp in selected clock domain."
+        },
+        {
+          "name": "clock_mode",
+          "type": "uint8_t",
+          "description": "0 uptime, 1 Unix wall time."
+        },
+        {
+          "name": "clock_quality",
+          "type": "uint8_t",
+          "description": "1 valid, 2 stale."
+        },
+        {
+          "name": "x",
+          "type": "double",
+          "description": "X meters."
+        },
+        {
+          "name": "y",
+          "type": "double",
+          "description": "Y meters."
+        },
+        {
+          "name": "t",
+          "type": "double",
+          "description": "Heading radians."
+        }
+      ]
+    },
+    {
+      "name": "heartbeat_config",
+      "description": "Per-connection watchdog settings.",
+      "properties": [
+        {
+          "name": "enabled",
+          "type": "bool",
+          "description": "Enable monitoring; disabled initially for compatibility."
+        },
+        {
+          "name": "timeout_ms",
+          "type": "uint32_t",
+          "description": "Monotonic receive timeout. Default 500 ms; send PING after at most timeout/5 of idle time (100 ms with the default).",
+          "range": [
+            100,
+            60000
+          ]
+        }
+      ]
+    },
+    {
+      "name": "imu_sample",
+      "description": "Latest independent accelerometer and gyroscope samples in sensor axes.",
+      "properties": [
+        {
+          "name": "acceleration_x",
+          "type": "double",
+          "description": "X acceleration in m/s^2, including gravity."
+        },
+        {
+          "name": "acceleration_y",
+          "type": "double",
+          "description": "Y acceleration in m/s^2, including gravity."
+        },
+        {
+          "name": "acceleration_z",
+          "type": "double",
+          "description": "Z acceleration in m/s^2, including gravity."
+        },
+        {
+          "name": "angular_velocity_x",
+          "type": "double",
+          "description": "X angular velocity in rad/s."
+        },
+        {
+          "name": "angular_velocity_y",
+          "type": "double",
+          "description": "Y angular velocity in rad/s."
+        },
+        {
+          "name": "angular_velocity_z",
+          "type": "double",
+          "description": "Z angular velocity in rad/s."
+        }
+      ]
+    }
+  ],
+  "header": {
+    "description": "Shared header. Length counts subsequent bytes. Message IDs increment from 1 through 65535 then wrap to 1; 0 is reserved for unsolicited messages or errors lacking an ID. Replies and errors echo the initiating request ID. Senders must skip outstanding IDs.",
+    "properties": [
+      {
+        "name": "length",
+        "type": "uint8_t"
+      },
+      {
+        "name": "command",
+        "type": "uint8_t"
+      },
+      {
+        "name": "message_id",
+        "type": "uint16_t"
+      }
+    ]
+  },
+  "error_codes": [
+    {
+      "code": 1,
+      "name": "INCOMPATIBLE_PROTOCOL",
+      "description": "The requested protocol version is incompatible with this firmware."
+    },
+    {
+      "code": 2,
+      "name": "INVALID_ARGUMENT",
+      "description": "A field is invalid, out of range, or inconsistent with the pending request."
+    },
+    {
+      "code": 3,
+      "name": "UNKNOWN_COMMAND",
+      "description": "The received command ID is not accepted by the controller."
+    },
+    {
+      "code": 4,
+      "name": "INVALID_LENGTH",
+      "description": "The complete message has an invalid header or payload length."
+    },
+    {
+      "code": 5,
+      "name": "MOTOR_OWNED",
+      "description": "The motor belongs to a platform; use the corresponding platform command."
+    },
+    {
+      "code": 6,
+      "name": "INTERNAL_ERROR",
+      "description": "The controller could not execute or encode the operation."
+    },
+    {
+      "code": 7,
+      "name": "CLOCK_NOT_READY",
+      "description": "Initial clock setup is incomplete; wait for READY. Uptime mode also supports READY."
+    },
+    {
+      "code": 8,
+      "name": "TIME_SYNC_FAILED",
+      "description": "Initial time sync exhausted its attempts without a valid sample."
+    },
+    {
+      "code": 9,
+      "name": "ODOMETRY_NOT_INITIALIZED",
+      "description": "Odometry is not running; start odometry before requesting a measurement."
+    },
+    {
+      "code": 10,
+      "name": "SAMPLE_NOT_AVAILABLE",
+      "description": "The requested measurement is not ready yet, including after initialization or reset; retry after an update."
+    },
+    {
+      "code": 11,
+      "name": "ENCODER_NOT_INITIALIZED",
+      "description": "Initialize the encoder before reading it or starting encoder odometry."
+    },
+    {
+      "code": 12,
+      "name": "PLATFORM_NOT_INITIALIZED",
+      "description": "Initialize a platform before performing this operation."
+    },
+    {
+      "code": 13,
+      "name": "MOTOR_NOT_INITIALIZED",
+      "description": "Initialize the motor before setting its speed."
+    },
+    {
+      "code": 14,
+      "name": "CONTROLLER_NOT_INITIALIZED",
+      "description": "Start or initialize the closed-loop controller before setting its target."
+    },
+    {
+      "code": 15,
+      "name": "INIT_REQUIRED",
+      "description": "Send a valid INIT request before performing this connection-dependent operation."
+    },
+    {
+      "code": 16,
+      "name": "SENSOR_NOT_AVAILABLE",
+      "description": "The selected sensor is not defined on this board."
+    }
+  ]
+}

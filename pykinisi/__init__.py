@@ -8,13 +8,15 @@ from .KinisiController import (
     ClockMode, ClockQuality,
 )
 from .errors import KinisiError, ConnectionClosedError, ProtocolError, RequestTimeoutError, ControllerError
+from .board_profile import get_board_profile, has_board_sensor, supports_board_sensor
 
 __author__ = 'Sergey Zolotykh'
 
 __all__ = [
     'KinisiController', 'MotorIndex', 'EncoderIndex', 'GPIOIndex', 'GPIOMode', 'State',
     'ClockMode', 'ClockQuality', 'ErrorCode', 'InitResponse', 'TimeStatus', 'HeartbeatConfig',
-    'EncoderOdometrySample', 'PlatformOdometrySample', 'KinisiError',
+    'EncoderOdometrySample', 'PlatformOdometrySample', 'ImuSample', 'KinisiError',
+    'get_board_profile', 'has_board_sensor', 'supports_board_sensor',
     'ConnectionClosedError', 'ProtocolError', 'RequestTimeoutError', 'ControllerError',
     '__version__',
 ]

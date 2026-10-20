@@ -26,6 +26,7 @@ DIRECTIONS = {"client_to_controller", "controller_to_client"}
 SESSION_COMMANDS = {
     "PING", "SET_HEARTBEAT_CONFIG", "SUBSCRIBE_ODOMETRY", "UNSUBSCRIBE_ODOMETRY",
     "ENCODER_ODOMETRY_EVENT", "PLATFORM_ODOMETRY_EVENT",
+    "GET_TEMPERATURE", "GET_IMU",
 }
 
 
@@ -214,6 +215,9 @@ def _generate_method(cmd, objects):
     if cmd.get("errors"):
         description += "\n\nController errors: " + ", ".join(cmd["errors"]) + "."
     result += _docstring(description, "        ")
+    if cmd['command'] in ('GET_TEMPERATURE', 'GET_IMU'):
+        result += "        if type(sensor_index) is not int or not 0 <= sensor_index <= 255:\n"
+        result += "            raise ValueError('sensor_index must be an integer from 0 to 255')\n"
     if velocity:
         result += "        if any(not math.isfinite(value) or value < 0 for value in (kp, ki, kd, integral_limit)) or integral_limit > 100:\n"
         result += "            raise ValueError('Velocity gains must be finite and nonnegative; integral_limit must be 0..100 PWM percentage points')\n"
@@ -221,7 +225,17 @@ def _generate_method(cmd, objects):
     result += f"        payload = struct.pack({_format(props)!r}{', ' if values else ''}{values})\n"
     size = f"{get_object_name(obj)}.get_size()" if obj else str(type_to_size_map[response["type"]]) if response else "0"
     result += f"        result = self._request({cmd['command']}, payload, {size})\n"
-    if obj:
+    if cmd['command'] == 'GET_IMU':
+        result += f"        sample = {get_object_name(obj)}.decode(result)\n"
+        result += "        if not all(math.isfinite(value) for value in vars(sample).values()):\n"
+        result += "            raise ValueError('Invalid IMU payload')\n"
+        result += "        return sample\n"
+    elif cmd['command'] == 'GET_TEMPERATURE':
+        result += "        temperature = _unpack_payload('<d', result)[0]\n"
+        result += "        if not math.isfinite(temperature):\n"
+        result += "            raise ValueError('Invalid temperature payload')\n"
+        result += "        return temperature\n"
+    elif obj:
         result += f"        return {get_object_name(obj)}.decode(result)\n"
     elif response:
         result += f"        return _unpack_payload({'<' + TYPE_FORMATS[response['type']]!r}, result)[0]\n"
