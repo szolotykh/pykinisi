@@ -9,7 +9,7 @@ import struct
 from enum import IntEnum
 
 
-PROTOCOL_VERSION = (2, 5, 0)
+PROTOCOL_VERSION = (2, 6, 0)
 
 GET_TEMPERATURE = 0x50
 GET_IMU = 0x51
@@ -62,9 +62,13 @@ GET_TIME_STATUS = 0x75
 PING = 0x76
 SET_HEARTBEAT_CONFIG = 0x77
 GET_HEARTBEAT_CONFIG = 0x78
+# Retired since protocol 2.6.0. Use SUBSCRIBE. Kept for compatibility; eligible for removal in protocol 3.0.0.
 SUBSCRIBE_ODOMETRY = 0x79
+# Retired since protocol 2.6.0. Use UNSUBSCRIBE. Kept for compatibility; eligible for removal in protocol 3.0.0.
 UNSUBSCRIBE_ODOMETRY = 0x7A
+# Retired since protocol 2.6.0. Use TELEMETRY_EVENT. Kept for compatibility; eligible for removal in protocol 3.0.0.
 ENCODER_ODOMETRY_EVENT = 0x7B
+# Retired since protocol 2.6.0. Use TELEMETRY_EVENT. Kept for compatibility; eligible for removal in protocol 3.0.0.
 PLATFORM_ODOMETRY_EVENT = 0x7C
 POLL_TELEMETRY = 0x7D
 INITIALIZE_MOTOR_POSITION_CONTROLLER = 0x0C
@@ -76,6 +80,9 @@ RESET_PLATFORM_POSITION = 0x4C
 SET_PLATFORM_POSITION = 0x4D
 INITIALIZE_MOTOR_POSITION_PID_CONTROLLER = 0x10
 INITIALIZE_PLATFORM_POSITION_PID_CONTROLLER = 0x4E
+SUBSCRIBE = 0x80
+UNSUBSCRIBE = 0x81
+TELEMETRY_EVENT = 0x82
 
 
 class ErrorCode(IntEnum):
@@ -97,6 +104,7 @@ class ErrorCode(IntEnum):
     CONTROLLER_NOT_INITIALIZED = 14
     INIT_REQUIRED = 15
     SENSOR_NOT_AVAILABLE = 16
+    SUBSCRIPTION_LIMIT = 17
 
 
 ERROR_DESCRIPTIONS = {
@@ -116,6 +124,7 @@ ERROR_DESCRIPTIONS = {
     14: 'Start or initialize the closed-loop controller before setting its target.',
     15: 'Send a valid INIT request before performing this connection-dependent operation.',
     16: 'The selected sensor is not defined on this board.',
+    17: 'This connection has no free subscription slots; unsubscribe an existing source first.',
 }
 
 
@@ -426,6 +435,120 @@ class ImuSample:
         return cls(*_unpack_payload('<dddddd', payload))
 
 
+class TemperatureSample:
+    """Timestamped temperature register reading in degrees Celsius.
+
+    timestamp_us: Sensor register-read completion timestamp in the selected clock domain;
+    not a hardware conversion timestamp.
+    clock_mode: 0 uptime, 1 Unix wall time.
+    clock_quality: 1 valid, 2 stale.
+    celsius: Temperature in degrees Celsius.
+    """
+
+    def __init__(self, timestamp_us: int, clock_mode: int, clock_quality: int, celsius: float):
+        """Store the fields of one controller payload."""
+        self.timestamp_us = timestamp_us
+        self.clock_mode = clock_mode
+        self.clock_quality = clock_quality
+        self.celsius = celsius
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 18
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<QBBd', self.timestamp_us, self.clock_mode, self.clock_quality, self.celsius))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'TemperatureSample':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<QBBd', payload))
+
+
+class ImuTelemetrySample:
+    """Timestamped IMU register reading. Acceleration and angular velocity are not synchronized
+    with each other.
+
+    timestamp_us: Sensor register-read completion timestamp in the selected clock domain;
+    not a hardware conversion timestamp.
+    clock_mode: 0 uptime, 1 Unix wall time.
+    clock_quality: 1 valid, 2 stale.
+    acceleration_x: X acceleration in m/s^2, including gravity.
+    acceleration_y: Y acceleration in m/s^2, including gravity.
+    acceleration_z: Z acceleration in m/s^2, including gravity.
+    angular_velocity_x: X angular velocity in rad/s.
+    angular_velocity_y: Y angular velocity in rad/s.
+    angular_velocity_z: Z angular velocity in rad/s.
+    """
+
+    def __init__(self, timestamp_us: int, clock_mode: int, clock_quality: int, acceleration_x: float, acceleration_y: float, acceleration_z: float, angular_velocity_x: float, angular_velocity_y: float, angular_velocity_z: float):
+        """Store the fields of one controller payload."""
+        self.timestamp_us = timestamp_us
+        self.clock_mode = clock_mode
+        self.clock_quality = clock_quality
+        self.acceleration_x = acceleration_x
+        self.acceleration_y = acceleration_y
+        self.acceleration_z = acceleration_z
+        self.angular_velocity_x = angular_velocity_x
+        self.angular_velocity_y = angular_velocity_y
+        self.angular_velocity_z = angular_velocity_z
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 58
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<QBBdddddd', self.timestamp_us, self.clock_mode, self.clock_quality, self.acceleration_x, self.acceleration_y, self.acceleration_z, self.angular_velocity_x, self.angular_velocity_y, self.angular_velocity_z))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'ImuTelemetrySample':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<QBBdddddd', payload))
+
+
+class Topic(IntEnum):
+    """Stable wire identifiers for telemetry sources."""
+    ENCODER_ODOMETRY = 1
+    PLATFORM_ODOMETRY = 2
+    TEMPERATURE = 3
+    IMU = 4
+
+
+TOPIC_DEFINITIONS = {
+    Topic.ENCODER_ODOMETRY: (EncoderOdometrySample, 3, 2),
+    Topic.PLATFORM_ODOMETRY: (PlatformOdometrySample, 0, 2),
+    Topic.TEMPERATURE: (TemperatureSample, 255, 250),
+    Topic.IMU: (ImuTelemetrySample, 255, 10),
+}
+
+
+def validate_topic(topic, index):
+    """Validate enum and resource index before encoding a command."""
+    if isinstance(topic, bool) or not isinstance(topic, int) or topic not in TOPIC_DEFINITIONS:
+        raise ValueError('Invalid telemetry topic')
+    if type(index) is not int or not 0 <= index <= TOPIC_DEFINITIONS[topic][1]:
+        raise ValueError('Invalid telemetry index')
+
+
+def decode_telemetry_event(payload):
+    """Return (topic, index, sample), or None for a future unknown topic."""
+    if len(payload) < 2:
+        raise ValueError('Truncated telemetry envelope')
+    topic, index = payload[:2]
+    if topic not in TOPIC_DEFINITIONS:
+        return None
+    validate_topic(topic, index)
+    sample = TOPIC_DEFINITIONS[topic][0].decode(payload[2:])
+    if (sample.clock_mode not in (0, 1) or sample.clock_quality not in (1, 2) or
+            any(isinstance(value, float) and not math.isfinite(value) for value in vars(sample).values())):
+        raise ValueError('Invalid telemetry sample')
+    return Topic(topic), index, sample
+
+
 class KinisiCommands:
     """Public command methods shared by transports implementing protocol v2."""
 
@@ -437,8 +560,8 @@ class KinisiCommands:
         raise NotImplementedError("A protocol-v2 transport must implement _request")
 
     def get_temperature(self, sensor_index: int) -> float:
-        """Protocol 2.4: read the latest board temperature in degrees Celsius. Sensor 0 is the
-        TMP102 on v0.4. Sampling runs at 4 Hz; faster reads may repeat a sample. Returns
+        """Read the latest board temperature in degrees Celsius. Sensor 0 is the TMP102 on
+        v0.4. Sampling runs at 4 Hz; faster reads may repeat a sample. Returns
         SAMPLE_NOT_AVAILABLE during the first 300 ms after sensor initialization or
         recovery, SENSOR_NOT_AVAILABLE when the board has no such sensor, and INTERNAL_ERROR
         on I2C or configuration failure.
@@ -458,14 +581,13 @@ class KinisiCommands:
         return temperature
 
     def get_imu(self, sensor_index: int) -> ImuSample:
-        """Protocol 2.5: read the latest accelerometer and gyroscope samples in native sensor
-        axes. Acceleration is in m/s^2 and includes gravity; angular velocity is in rad/s.
-        BMI088 uses +/-6 g and +/-500 degrees/s at 100 Hz. Each three-axis sample is
-        coherent, but accel and gyro are not time-synchronized. Faster requests may repeat
-        samples. No orientation or calibration is applied. Returns SAMPLE_NOT_AVAILABLE
-        during the 50 ms settling interval after initialization or recovery,
-        SENSOR_NOT_AVAILABLE for an absent sensor, and INTERNAL_ERROR on SPI, identity or
-        configuration failure.
+        """Read the latest accelerometer and gyroscope samples in native sensor axes.
+        Acceleration is in m/s^2 and includes gravity; angular velocity is in rad/s. BMI088
+        uses +/-6 g and +/-500 degrees/s at 100 Hz. Each three-axis sample is coherent, but
+        accel and gyro are not time-synchronized. Faster requests may repeat samples. No
+        orientation or calibration is applied. Returns SAMPLE_NOT_AVAILABLE during the 50 ms
+        settling interval after initialization or recovery, SENSOR_NOT_AVAILABLE for an
+        absent sensor, and INTERNAL_ERROR on SPI, identity or configuration failure.
 
         sensor_index: Zero-based index in the board imu_sensors array.
 
@@ -1106,13 +1228,13 @@ class KinisiCommands:
         return HeartbeatConfig.decode(result)
 
     def subscribe_odometry(self, source: int, interval_ms: int) -> None:
-        """Publish the latest completed sample using the requested scheduling interval without
-        rounding it to calculation ticks. Delivery is subject to transport capacity and task
-        scheduling. Requires READY, an enabled heartbeat and running odometry. Replaces an
-        existing subscription for this source. Interval must be at least twice the
-        calculation period. No renewal is needed. Stop/reset of calculation pauses samples
-        until fresh measurements exist; unsubscribe, INIT, disconnect or watchdog timeout
-        removes subscriptions.
+        """Create or replace this connection's subscription for an odometry source. Requires
+        READY, enabled heartbeat and running odometry. The interval must be at least twice
+        the calculation period. Stop or reset pauses delivery until a fresh sample is
+        available.
+
+        Retired since protocol 2.6.0. Use SUBSCRIBE. Kept for compatibility; eligible for
+        removal in protocol 3.0.0.
 
         source: 0 through 3 select encoder odometry; 4 selects platform odometry.
         interval_ms: Delivery interval, independent of calculation scheduling.
@@ -1124,8 +1246,11 @@ class KinisiCommands:
         result = self._request(SUBSCRIBE_ODOMETRY, payload, 0)
 
     def unsubscribe_odometry(self, source: int) -> None:
-        """Remove this source subscription; succeeds if already absent. Does not stop odometry
-        calculation.
+        """Remove this connection's subscription for an odometry source. Succeeds if already
+        absent and leaves odometry calculation running.
+
+        Retired since protocol 2.6.0. Use UNSUBSCRIBE. Kept for compatibility; eligible for
+        removal in protocol 3.0.0.
 
         source: 0 through 3 select encoder odometry; 4 selects platform odometry.
 
@@ -1135,10 +1260,9 @@ class KinisiCommands:
         result = self._request(UNSUBSCRIBE_ODOMETRY, payload, 0)
 
     def poll_telemetry(self) -> None:
-        """I2C master service request. Allows at most one due odometry event before its empty
-        ACK, so the master can clock out telemetry without waiting indefinitely when no
-        sample is available. USB clients receive events automatically and do not need this
-        command.
+        """Allow an I2C master to read at most one due telemetry event followed by an empty
+        ACK. Return only the ACK when no sample is available. USB clients receive events
+        automatically.
 
         Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED,
         CLOCK_NOT_READY.
@@ -1248,12 +1372,12 @@ class KinisiCommands:
         result = self._request(SET_PLATFORM_POSITION, payload, 0)
 
     def initialize_motor_position_pid_controller(self, motor_index: int, kp: float, max_speed: float, tolerance: float, ki: float, kd: float, integral_limit: float) -> None:
-        """Protocol 2.3: initialize a position PID over the existing velocity controller.
-        Initialize a bounded position PID loop over an already running motor velocity
-        controller. Zero is the current encoder position; initially holds zero.
-        Stop/delete/reinitialize of velocity control discards position tuning. Clears
-        position PID history. Ki and Kd may be zero to disable I and D. Integral limits
-        bound the integral velocity contribution.
+        """Initialize a position PID over the existing velocity controller. Initialize a
+        bounded position PID loop over an already running motor velocity controller. Zero is
+        the current encoder position; initially holds zero. Stop/delete/reinitialize of
+        velocity control discards position tuning. Clears position PID history. Ki and Kd
+        may be zero to disable I and D. Integral limits bound the integral velocity
+        contribution.
 
         motor_index: Motor index.
         kp: Position gain in inverse seconds; must be positive.
@@ -1270,12 +1394,12 @@ class KinisiCommands:
         result = self._request(INITIALIZE_MOTOR_POSITION_PID_CONTROLLER, payload, 0)
 
     def initialize_platform_position_pid_controller(self, linear_kp: float, angular_kp: float, max_linear_speed: float, max_angular_speed: float, position_tolerance: float, heading_tolerance: float, linear_ki: float, linear_kd: float, linear_integral_limit: float, angular_ki: float, angular_kd: float, angular_integral_limit: float) -> None:
-        """Protocol 2.3: initialize a position PID over the existing velocity controller.
-        Initialize bounded pose control after START_PLATFORM_CONTROLLER. Starts odometry if
-        needed, preserves its world frame and zeros velocity targets. No motion until
-        SET_PLATFORM_POSITION. Supports omni, mecanum and differential bases. Clears
-        position PID history. Ki and Kd may be zero to disable I and D. Integral limits
-        bound the integral velocity contribution.
+        """Initialize a position PID over the existing velocity controller. Initialize bounded
+        pose control after START_PLATFORM_CONTROLLER. Starts odometry if needed, preserves
+        its world frame and zeros velocity targets. No motion until SET_PLATFORM_POSITION.
+        Supports omni, mecanum and differential bases. Clears position PID history. Ki and
+        Kd may be zero to disable I and D. Integral limits bound the integral velocity
+        contribution.
 
         linear_kp: Translation gain in inverse seconds; positive.
         angular_kp: Heading gain in inverse seconds; positive.
@@ -1295,4 +1419,38 @@ class KinisiCommands:
         """
         payload = struct.pack('<dddddddddddd', linear_kp, angular_kp, max_linear_speed, max_angular_speed, position_tolerance, heading_tolerance, linear_ki, linear_kd, linear_integral_limit, angular_ki, angular_kd, angular_integral_limit)
         result = self._request(INITIALIZE_PLATFORM_POSITION_PID_CONTROLLER, payload, 0)
+
+    def subscribe(self, topic_id: int, index: int, interval_ms: int) -> None:
+        """Create or replace this connection's subscription for a topic and resource. Requires
+        READY and enabled heartbeat. Odometry must be running. The interval must meet the
+        topic minimum and, for odometry, be at least twice the calculation period. Failed
+        reads pause delivery until recovery.
+
+        topic_id: Generated telemetry topic enum.
+        index: Resource index; platform uses 0. Hardware availability is checked by
+        firmware.
+        interval_ms: Requested delivery interval in milliseconds; scheduling is best effort.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        ODOMETRY_NOT_INITIALIZED, SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, SUBSCRIPTION_LIMIT.
+        """
+        validate_topic(topic_id, index)
+        if type(interval_ms) is not int or not TOPIC_DEFINITIONS[topic_id][2] <= interval_ms <= 3600000:
+            raise ValueError('Invalid subscription interval')
+        payload = struct.pack('<BBI', topic_id, index, interval_ms)
+        result = self._request(SUBSCRIBE, payload, 0)
+
+    def unsubscribe(self, topic_id: int, index: int) -> None:
+        """Remove this connection's subscription for a topic and resource. Requires READY.
+        Succeeds if already absent and leaves calculation running.
+
+        topic_id: Generated telemetry topic enum.
+        index: Resource index; platform uses 0. Hardware availability is checked by
+        firmware.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY.
+        """
+        validate_topic(topic_id, index)
+        payload = struct.pack('<BB', topic_id, index)
+        result = self._request(UNSUBSCRIBE, payload, 0)
 

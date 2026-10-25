@@ -13,6 +13,7 @@ from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'tools'))
 
 
 def load_module(name, path):
@@ -34,7 +35,7 @@ def schema_fixture():
         ("signed_wide", "int64_t"), ("enabled", "bool"), ("value", "double"),
     ]
     fields = [{"name": name, "type": kind, "description": name} for name, kind in sample_fields]
-    return {
+    fixture = {
         "version": "2.1.0",
         "header": {"properties": [
             {"name": "length", "type": "uint8_t"},
@@ -79,6 +80,13 @@ def schema_fixture():
                                  ("ENCODER_ODOMETRY_EVENT", "0x7B"), ("PLATFORM_ODOMETRY_EVENT", "0x7C")]],
         ],
     }
+    bundled = json.loads((ROOT / 'tools/commands.json').read_text(encoding='utf-8'))
+    fixture['topics'] = bundled['topics']
+    payloads = {topic['payload_type'] for topic in bundled['topics']}
+    fixture['objects'].extend(obj for obj in bundled['objects'] if obj['name'] in payloads)
+    fixture['commands'].extend({k: v for k, v in cmd.items() if k != 'errors'}
+                               for cmd in bundled['commands'] if cmd['command'] in ('SUBSCRIBE', 'UNSUBSCRIBE', 'TELEMETRY_EVENT'))
+    return fixture
 
 
 def generate_namespace(schema):
@@ -268,6 +276,23 @@ class CheckedInSchemaTests(unittest.TestCase):
     def setUp(self):
         """Load the committed/generated module without requiring pyserial."""
         self.commands = load_module("checked_in_commands", ROOT / "pykinisi" / "KinisiCommands.py")
+
+    def test_topic_metadata_and_retirement_are_validated(self):
+        schema = json.loads((ROOT / 'tools/commands.json').read_text(encoding='utf-8'))
+        for mutate in (
+                lambda s: s['topics'][0].update(id=0),
+                lambda s: s['topics'][1].update(id=s['topics'][0]['id']),
+                lambda s: s['topics'][0].update(payload_type='absent'),
+                lambda s: s['topics'][0].update(min_interval_ms=0),
+                lambda s: next(c for c in s['commands'] if 'retired' in c)['retired'].update(removal_major=2),
+                lambda s: next(c for c in s['commands'] if 'retired' in c)['retired'].update(replacement='ABSENT')):
+            invalid = deepcopy(schema)
+            mutate(invalid)
+            with self.assertRaises(ValueError):
+                generator.generate_python_code(invalid)
+        code = generator.generate_python_code(schema)
+        self.assertIn('Retired since protocol 2.6.0', code)
+        self.assertIn('def subscribe_odometry(', code)
 
     def test_odometry_preserves_timestamp_and_clock_metadata(self):
         """Both odometry methods return measurement time and full numeric state."""
