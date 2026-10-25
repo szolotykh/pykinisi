@@ -6,6 +6,7 @@ import math
 import struct
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import IntEnum
 
@@ -18,6 +19,7 @@ from .KinisiCommands import (
     PING, SET_HEARTBEAT_CONFIG, SUBSCRIBE_ODOMETRY, UNSUBSCRIBE_ODOMETRY,
     ENCODER_ODOMETRY_EVENT, PLATFORM_ODOMETRY_EVENT,
     EncoderOdometrySample, PlatformOdometrySample, GET_TEMPERATURE, GET_IMU,
+    SUBSCRIBE, UNSUBSCRIBE, TELEMETRY_EVENT, Topic, validate_topic, decode_telemetry_event,
 )
 from .board_profile import get_board_profile, supports_board_sensor
 from ._version import VERSION
@@ -89,6 +91,44 @@ class _PendingRequest:
     request_payload: bytes = b""
 
 
+@dataclass
+class _SubscriptionEntry:
+    topic: int
+    index: int
+    callback: object
+    session: int
+    latest: object = None
+    closing: bool = False
+
+
+class Subscription:
+    """One subscription's ownership; an older handle cannot cancel its replacement."""
+
+    def __init__(self, owner, entry):
+        self._owner, self._entry = owner, entry
+
+    @property
+    def active(self):
+        owner, entry = self._owner, self._entry
+        with owner._lock:
+            return (not entry.closing and entry.session == owner._session and
+                    owner._telemetry.get((entry.topic, entry.index)) is entry)
+
+    def unsubscribe(self):
+        owner, entry = self._owner, self._entry
+        with owner._telemetry_operation_lock:
+            if not self.active:
+                return
+            with owner._subscription_session(entry.session):
+                owner.unsubscribe(entry.topic, entry.index)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.unsubscribe()
+
+
 class KinisiController(KinisiCommands):
     """A protocol-v2 serial client; disconnect or use a context manager when finished."""
 
@@ -123,6 +163,14 @@ class KinisiController(KinisiCommands):
         self._reader = None
         self._stop = threading.Event()
         self._wall_clock_active = self.wall_clock
+        self._session = 0
+        self._telemetry = {}
+        self._telemetry_candidates = {}
+        self._telemetry_operation_lock = threading.RLock()
+        self._telemetry_context = threading.local()
+        self._telemetry_wakeup = threading.Event()
+        self._telemetry_thread = None
+        self.last_telemetry_error = None
 
     @property
     def ready(self):
@@ -141,6 +189,111 @@ class KinisiController(KinisiCommands):
         with self._lock:
             return supports_board_sensor(self.board_info, kind, index)
 
+    def supports_topic(self, topic, index=0):
+        """Check protocol and known hardware; running odometry is checked by firmware."""
+        try:
+            validate_topic(topic, index)
+        except ValueError:
+            return False
+        with self._lock:
+            info, profile = self.board_info, self.board_profile
+            if not info or info.protocol_major != 2 or info.protocol_minor < 6 or profile is None:
+                return False
+            if topic == Topic.ENCODER_ODOMETRY:
+                return index < profile['resources']['encoders']
+            if topic == Topic.PLATFORM_ODOMETRY:
+                return True
+            if topic in (Topic.TEMPERATURE, Topic.IMU):
+                return self.supports_sensor('temperature' if topic == Topic.TEMPERATURE else 'imu', index)
+            return False
+
+    def subscribe(self, topic, callback, *, index=0, interval_ms):
+        """Subscribe to typed samples and return an ownership handle.
+
+        Callbacks run on a worker, separately from serial reads and heartbeat.
+        Slow callbacks receive the latest sample; intermediate samples are coalesced.
+        """
+        validate_topic(topic, index)
+        if not callable(callback):
+            raise TypeError('callback must be callable')
+        key = (topic, index)
+        with self._telemetry_operation_lock:
+            with self._lock:
+                entry = _SubscriptionEntry(topic, index, callback, self._session)
+                self._telemetry_candidates[key] = entry
+            try:
+                with self._subscription_session(entry.session):
+                    super().subscribe(topic, index, interval_ms)
+            except RequestTimeoutError:
+                # A lost ACK may hide a successful subscription. Cancel it; if that
+                # cannot be confirmed, terminate the session and its watchdog.
+                with self._lock:
+                    same_session = entry.session == self._session
+                    transport = self.serial
+                if same_session and transport is not None:
+                    try:
+                        with self._subscription_session(entry.session):
+                            super().unsubscribe(topic, index)
+                    except Exception as error:
+                        self._fail_session(error, transport)
+                raise
+            finally:
+                with self._lock:
+                    if self._telemetry_candidates.get(key) is entry:
+                        del self._telemetry_candidates[key]
+            return Subscription(self, entry)
+
+    @contextmanager
+    def _subscription_session(self, session):
+        """Keep an operation bound to its connection even if another thread reconnects."""
+        previous = getattr(self._telemetry_context, 'session', None)
+        self._telemetry_context.session = session
+        try:
+            yield
+        finally:
+            self._telemetry_context.session = previous
+
+    def unsubscribe(self, topic, index=0):
+        """Remove the selected topic/resource and its callback after acknowledgement."""
+        with self._telemetry_operation_lock:
+            with self._lock:
+                transport = self.serial
+            try:
+                return super().unsubscribe(topic, index)
+            except RequestTimeoutError as error:
+                if transport is not None:
+                    self._fail_session(error, transport)
+                raise
+
+    def _clear_telemetry(self):
+        """Invalidate handles under the session lock."""
+        self._session += 1
+        for entry in (*self._telemetry.values(), *self._telemetry_candidates.values()):
+            entry.closing = True
+        self._telemetry.clear()
+        self._telemetry_candidates.clear()
+
+    def _telemetry_loop(self, transport, stop, wakeup):
+        while not stop.is_set():
+            wakeup.wait(0.05)
+            wakeup.clear()
+            with self._lock:
+                if self.serial is not transport:
+                    return
+                entries = list(self._telemetry.items())
+            for key, entry in entries:
+                with self._lock:
+                    if stop.is_set() or self._telemetry.get(key) is not entry or entry.closing:
+                        continue
+                    sample, entry.latest = entry.latest, None
+                if sample is not None:
+                    try:
+                        entry.callback(sample)
+                    except Exception as error:
+                        with self._lock:
+                            if self.serial is transport and entry.session == self._session:
+                                self.last_telemetry_error = error
+
     def connect(self, port):
         """Open and finish INIT/READY; return False with last_error on failure."""
         with self._lifecycle_lock:
@@ -153,6 +306,7 @@ class KinisiController(KinisiCommands):
                 with self._lock:
                     self.serial = transport
                     self.last_error = self.last_sync_error = None
+                    self.last_telemetry_error = None
                     self.board_info = self.clock_mode = None
                     self._ready = False
                     self._pending.clear()
@@ -160,6 +314,10 @@ class KinisiController(KinisiCommands):
                     self._message_id = 0
                     self._wall_clock_active = self.wall_clock
                     self._stop = threading.Event()
+                    self._telemetry_wakeup = threading.Event()
+                    self._telemetry_thread = threading.Thread(target=self._telemetry_loop,
+                        args=(transport, self._stop, self._telemetry_wakeup), name="pykinisi-telemetry", daemon=True)
+                    self._telemetry_thread.start()
                     self._reader = threading.Thread(target=self._reader_loop,
                         args=(transport, self._stop), name="pykinisi-reader", daemon=True)
                     self._reader.start()
@@ -198,6 +356,15 @@ class KinisiController(KinisiCommands):
             transport = self.serial
             if transport is None:
                 raise ConnectionClosedError("Connect before sending commands")
+            if command in (SUBSCRIBE, UNSUBSCRIBE):
+                expected_session = getattr(self._telemetry_context, 'session', None)
+                if expected_session is not None and expected_session != self._session:
+                    raise ConnectionClosedError('Subscription connection changed before transmission')
+                if (not self._ready or self.board_info is None or
+                        self.board_info.protocol_major != 2 or self.board_info.protocol_minor < 6):
+                    raise ProtocolError('Subscriptions require a ready protocol 2.6+ controller')
+                if command == SUBSCRIBE and self.board_profile is not None and not self.supports_topic(payload[0], payload[1]):
+                    raise ProtocolError('This board does not support the selected telemetry source')
             if command in SENSOR_COMMANDS:
                 kind, sensor_minor = SENSOR_COMMANDS[command]
                 if (not self._ready or self.board_info is None or
@@ -224,6 +391,7 @@ class KinisiController(KinisiCommands):
                 self._ready = False
                 self._heartbeat_idle_s = None
                 self._subscription_samples.clear()
+                self._clear_telemetry()
                 self.board_info = self.clock_mode = None
             self._pending[message_id] = pending
         try:
@@ -357,6 +525,21 @@ class KinisiController(KinisiCommands):
                     lambda: struct.pack("<QQ", received_us, time.time_ns() // 1000),
                     time.monotonic() + self.request_timeout)
             return
+        if command == TELEMETRY_EVENT:
+            if message_id:
+                raise ProtocolError('Telemetry events must use message ID zero')
+            try:
+                event = decode_telemetry_event(payload)
+            except ValueError as error:
+                raise ProtocolError(str(error)) from error
+            if event is not None:
+                topic, index, sample = event
+                with self._lock:
+                    entry = self._telemetry.get((topic, index))
+                    if self.serial is transport and self._ready and entry is not None and not entry.closing:
+                        entry.latest = sample
+                        self._telemetry_wakeup.set()
+            return
         if command in (ENCODER_ODOMETRY_EVENT, PLATFORM_ODOMETRY_EVENT):
             encoder = command == ENCODER_ODOMETRY_EVENT
             if message_id or len(payload) != (19 if encoder else 34) or (encoder and payload[0] > 3):
@@ -391,6 +574,7 @@ class KinisiController(KinisiCommands):
                     self._ready = False
                     self._heartbeat_idle_s = None
                     self._subscription_samples.clear()
+                    self._clear_telemetry()
                 pending.error = error
                 pending.event.set()
                 return
@@ -422,8 +606,28 @@ class KinisiController(KinisiCommands):
                 self._heartbeat_idle_s = timeout_ms / 5000 if enabled else None
                 if not enabled:
                     self._subscription_samples.clear()
-            elif command == UNSUBSCRIBE_ODOMETRY:
-                self._subscription_samples.pop(pending.request_payload[0], None)
+                    self._clear_telemetry()
+            elif command in (SUBSCRIBE, UNSUBSCRIBE):
+                key = tuple(pending.request_payload[:2])
+                old = self._telemetry.pop(key, None)
+                if old is not None:
+                    old.closing = True
+                if command == SUBSCRIBE:
+                    entry = self._telemetry_candidates.get(key)
+                    if entry is None or entry.session != self._session or entry.closing:
+                        raise ProtocolError('Subscription acknowledged after session invalidation; reconnect')
+                    self._telemetry[key] = entry
+                if key[0] == Topic.ENCODER_ODOMETRY:
+                    self._subscription_samples.pop(key[1], None)
+                elif key[0] == Topic.PLATFORM_ODOMETRY:
+                    self._subscription_samples.pop(4, None)
+            elif command in (SUBSCRIBE_ODOMETRY, UNSUBSCRIBE_ODOMETRY):
+                source = pending.request_payload[0]
+                key = (Topic.PLATFORM_ODOMETRY, 0) if source == 4 else (Topic.ENCODER_ODOMETRY, source)
+                entry = self._telemetry.pop(key, None)
+                if entry is not None:
+                    entry.closing = True
+                self._subscription_samples.pop(source, None)
             pending.payload = payload
             pending.event.set()
 
@@ -437,7 +641,9 @@ class KinisiController(KinisiCommands):
             self.board_info = self.clock_mode = None
             self._heartbeat_idle_s = None
             self._subscription_samples.clear()
+            self._clear_telemetry()
             self._stop.set()
+            self._telemetry_wakeup.set()
             self.last_error = error
             for pending in self._pending.values():
                 if not pending.event.is_set():

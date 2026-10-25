@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import struct
 import textwrap
+from protocol_schema import validate_metadata, retirement_notice
 
 
 # Explicit little-endian struct formats keep payloads independent of the host ABI.
@@ -27,6 +28,7 @@ SESSION_COMMANDS = {
     "PING", "SET_HEARTBEAT_CONFIG", "SUBSCRIBE_ODOMETRY", "UNSUBSCRIBE_ODOMETRY",
     "ENCODER_ODOMETRY_EVENT", "PLATFORM_ODOMETRY_EVENT",
     "GET_TEMPERATURE", "GET_IMU",
+    "SUBSCRIBE", "UNSUBSCRIBE", "TELEMETRY_EVENT",
 }
 
 
@@ -88,6 +90,7 @@ def validate_schema(data):
     version = data.get("version")
     if not isinstance(version, str) or not re.fullmatch(r"2\.\d+\.\d+", version):
         raise ValueError("The Python transport requires a protocol 2.x.x schema")
+    validate_metadata(data, type_to_size_map)
     expected_header = [("length", "uint8_t"), ("command", "uint8_t"), ("message_id", "uint16_t")]
     header = data.get("header", {}).get("properties", [])
     if [(prop.get("name"), prop.get("type")) for prop in header] != expected_header:
@@ -210,11 +213,18 @@ def _generate_method(cmd, objects):
     return_type = get_object_name(obj) if obj else type_mapping[response["type"]] if response else "None"
     result = f"    def {cmd['command'].lower()}(self{', ' if args else ''}{args}) -> {return_type}:\n"
     description = cmd.get("description", "")
+    if 'retired' in cmd:
+        description += '\n\n' + retirement_notice(cmd)
     if props:
         description += "\n\n" + "\n".join(f"{prop['name']}: {prop.get('description', '')}" for prop in props)
     if cmd.get("errors"):
         description += "\n\nController errors: " + ", ".join(cmd["errors"]) + "."
     result += _docstring(description, "        ")
+    if cmd['command'] in ('SUBSCRIBE', 'UNSUBSCRIBE'):
+        result += "        validate_topic(topic_id, index)\n"
+    if cmd['command'] == 'SUBSCRIBE':
+        result += "        if type(interval_ms) is not int or not TOPIC_DEFINITIONS[topic_id][2] <= interval_ms <= 3600000:\n"
+        result += "            raise ValueError('Invalid subscription interval')\n"
     if cmd['command'] in ('GET_TEMPERATURE', 'GET_IMU'):
         result += "        if type(sensor_index) is not int or not 0 <= sensor_index <= 255:\n"
         result += "            raise ValueError('sensor_index must be an integer from 0 to 255')\n"
@@ -252,6 +262,8 @@ def generate_python_code(commands_data):
               'import math\nimport struct\nfrom enum import IntEnum\n\n\n')
     result += f"PROTOCOL_VERSION = {version!r}\n\n"
     for cmd in commands_data["commands"]:
+        if 'retired' in cmd:
+            result += '# ' + retirement_notice(cmd) + '\n'
         result += f"{cmd['command']} = 0x{_code(cmd['code'], 'command code'):02X}\n"
     result += '\n\nclass ErrorCode(IntEnum):\n    """Error codes returned by the shared controller ERROR message."""\n\n'
     for error in commands_data.get("error_codes", []):
@@ -271,6 +283,41 @@ def generate_python_code(commands_data):
 '''
     for obj in commands_data.get("objects", []):
         result += generate_object(obj)
+    topics = commands_data.get('topics', [])
+    if topics:
+        result += 'class Topic(IntEnum):\n    """Stable wire identifiers for telemetry sources."""\n'
+        for topic in topics:
+            result += f"    {topic['name']} = {topic['id']}\n"
+        result += '\n\nTOPIC_DEFINITIONS = {\n'
+        for topic in topics:
+            result += f"    Topic.{topic['name']}: ({get_object_name(objects[topic['payload_type']])}, {topic['index_max']}, {topic['min_interval_ms']}),\n"
+        result += '''}
+
+
+def validate_topic(topic, index):
+    """Validate enum and resource index before encoding a command."""
+    if isinstance(topic, bool) or not isinstance(topic, int) or topic not in TOPIC_DEFINITIONS:
+        raise ValueError('Invalid telemetry topic')
+    if type(index) is not int or not 0 <= index <= TOPIC_DEFINITIONS[topic][1]:
+        raise ValueError('Invalid telemetry index')
+
+
+def decode_telemetry_event(payload):
+    """Return (topic, index, sample), or None for a future unknown topic."""
+    if len(payload) < 2:
+        raise ValueError('Truncated telemetry envelope')
+    topic, index = payload[:2]
+    if topic not in TOPIC_DEFINITIONS:
+        return None
+    validate_topic(topic, index)
+    sample = TOPIC_DEFINITIONS[topic][0].decode(payload[2:])
+    if (sample.clock_mode not in (0, 1) or sample.clock_quality not in (1, 2) or
+            any(isinstance(value, float) and not math.isfinite(value) for value in vars(sample).values())):
+        raise ValueError('Invalid telemetry sample')
+    return Topic(topic), index, sample
+
+
+'''
     result += '''class KinisiCommands:
     """Public command methods shared by transports implementing protocol v2."""
 

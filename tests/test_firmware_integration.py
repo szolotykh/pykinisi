@@ -18,9 +18,9 @@ import time
 import unittest
 from unittest import mock
 
-from pykinisi import KinisiController
+from pykinisi import KinisiController, Topic
 from pykinisi.KinisiCommands import (
-    ErrorCode, GET_PLATFORM_ODOMETRY, INIT, READY, TIME_SYNC_REQUEST, TIME_SYNC_RESPONSE,
+    ErrorCode, GET_PLATFORM_ODOMETRY, INIT, READY, TIME_SYNC_REQUEST, TIME_SYNC_RESPONSE, PROTOCOL_VERSION,
 )
 from pykinisi.errors import ControllerError
 
@@ -185,7 +185,7 @@ class FirmwareIntegrationTests(unittest.TestCase):
         client, serial = self.connect_client()
         self.assertTrue(client.ready)
         self.assertEqual((client.board_info.protocol_major, client.board_info.protocol_minor,
-                          client.board_info.protocol_patch), (2, 5, 0))
+                          client.board_info.protocol_patch), PROTOCOL_VERSION)
         self.assertEqual(serial.sent_count(INIT), 1)
         self.assertEqual(serial.sent_count(TIME_SYNC_REQUEST), 3)
         self.assertEqual(serial.sent_count(READY), 1)
@@ -223,6 +223,21 @@ class FirmwareIntegrationTests(unittest.TestCase):
         status = client.get_time_status()
         self.assertEqual((status.clock_mode, status.clock_quality, status.last_sync_age_us), (0, 1, 0))
         self.assertIsNone(client.stop_motor(0))
+
+    def test_generic_subscription_with_production_firmware(self):
+        client, serial = self.connect_client(wall_clock=False)
+        client.set_heartbeat_config(True, 1000)
+        samples = []
+        handle = client.subscribe(Topic.ENCODER_ODOMETRY, samples.append, interval_ms=100)
+        serial.advance(100000)
+        deadline = time.monotonic() + 1
+        while not samples and time.monotonic() < deadline:
+            time.sleep(0.005)
+        self.assertTrue(samples, client.last_error)
+        self.assertEqual(samples[-1].angle, 1.25)
+        self.assertEqual(samples[-1].clock_quality, 1)
+        handle.unsubscribe()
+        self.assertFalse(handle.active)
 
 
 if __name__ == "__main__":

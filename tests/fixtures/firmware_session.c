@@ -24,6 +24,8 @@ static uint64_t fixture_now(void)
     return current_us;
 }
 
+static uint32_t fixture_period(void) { return 20; }
+
 /** Copy a complete firmware frame into the simulated controller-to-host stream. */
 static bool fixture_send(uint8_t *bytes, uint8_t length)
 {
@@ -52,6 +54,11 @@ static uint8_t fixture_handler(controller_command_t *command, protocol_send_fn r
     }
     if (command->commandType == GET_PLATFORM_ODOMETRY)
         return RESPONSE_ODOMETRY_NOT_INITIALIZED;
+    if (command->commandType == GET_ENCODER_ODOMETRY) {
+        encoder_odometry_sample sample = {current_us / 20000 * 20000, 0, 1, 1.25};
+        reply((uint8_t *)&sample, sizeof(sample));
+        return RESPONSE_OK;
+    }
     return RESPONSE_UNKNOWN_COMMAND;
 }
 
@@ -62,6 +69,7 @@ EXPORT void fixture_reset(uint64_t now_us)
     incoming_size = outgoing_size = 0;
     memset(sent_count, 0, sizeof(sent_count));
     connection_init(&session, fixture_handler, fixture_send, fixture_now);
+    session.services.calculation_period_ms = fixture_period;
 }
 
 /** Append serial bytes without assuming a write contains exactly one frame. */

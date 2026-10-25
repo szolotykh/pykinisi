@@ -1,6 +1,6 @@
 # Messages API v2
 
-pykinisi includes messages API **2.5.0** and connects to firmware **2.1+** within
+pykinisi includes messages API **2.6.0** and connects to firmware **2.1+** within
 protocol major 2, gating newer commands separately. API 1.x firmware and clients are
 incompatible with the new framing and responses; update firmware and the SDK
 together. Existing motor and GPIO method arguments remain the same. Methods

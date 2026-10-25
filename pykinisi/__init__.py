@@ -5,7 +5,7 @@ from ._version import __version__
 from .KinisiCommands import *
 from .KinisiController import (
     KinisiController, MotorIndex, EncoderIndex, GPIOIndex, GPIOMode, State,
-    ClockMode, ClockQuality,
+    ClockMode, ClockQuality, Subscription,
 )
 from .errors import KinisiError, ConnectionClosedError, ProtocolError, RequestTimeoutError, ControllerError
 from .board_profile import get_board_profile, has_board_sensor, supports_board_sensor
@@ -16,6 +16,7 @@ __all__ = [
     'KinisiController', 'MotorIndex', 'EncoderIndex', 'GPIOIndex', 'GPIOMode', 'State',
     'ClockMode', 'ClockQuality', 'ErrorCode', 'InitResponse', 'TimeStatus', 'HeartbeatConfig',
     'EncoderOdometrySample', 'PlatformOdometrySample', 'ImuSample', 'KinisiError',
+    'Topic', 'Subscription', 'TemperatureSample', 'ImuTelemetrySample',
     'get_board_profile', 'has_board_sensor', 'supports_board_sensor',
     'ConnectionClosedError', 'ProtocolError', 'RequestTimeoutError', 'ControllerError',
     '__version__',

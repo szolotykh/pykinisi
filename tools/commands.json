@@ -1,11 +1,11 @@
 {
-  "version": "2.5.0",
+  "version": "2.6.0",
   "commands": [
     {
       "command": "GET_TEMPERATURE",
       "code": "0x50",
       "direction": "client_to_controller",
-      "description": "Protocol 2.4: read the latest board temperature in degrees Celsius. Sensor 0 is the TMP102 on v0.4. Sampling runs at 4 Hz; faster reads may repeat a sample. Returns SAMPLE_NOT_AVAILABLE during the first 300 ms after sensor initialization or recovery, SENSOR_NOT_AVAILABLE when the board has no such sensor, and INTERNAL_ERROR on I2C or configuration failure.",
+      "description": "Read the latest board temperature in degrees Celsius. Sensor 0 is the TMP102 on v0.4. Sampling runs at 4 Hz; faster reads may repeat a sample. Returns SAMPLE_NOT_AVAILABLE during the first 300 ms after sensor initialization or recovery, SENSOR_NOT_AVAILABLE when the board has no such sensor, and INTERNAL_ERROR on I2C or configuration failure.",
       "properties": [
         {
           "name": "sensor_index",
@@ -33,7 +33,7 @@
       "command": "GET_IMU",
       "code": "0x51",
       "direction": "client_to_controller",
-      "description": "Protocol 2.5: read the latest accelerometer and gyroscope samples in native sensor axes. Acceleration is in m/s^2 and includes gravity; angular velocity is in rad/s. BMI088 uses +/-6 g and +/-500 degrees/s at 100 Hz. Each three-axis sample is coherent, but accel and gyro are not time-synchronized. Faster requests may repeat samples. No orientation or calibration is applied. Returns SAMPLE_NOT_AVAILABLE during the 50 ms settling interval after initialization or recovery, SENSOR_NOT_AVAILABLE for an absent sensor, and INTERNAL_ERROR on SPI, identity or configuration failure.",
+      "description": "Read the latest accelerometer and gyroscope samples in native sensor axes. Acceleration is in m/s^2 and includes gravity; angular velocity is in rad/s. BMI088 uses +/-6 g and +/-500 degrees/s at 100 Hz. Each three-axis sample is coherent, but accel and gyro are not time-synchronized. Faster requests may repeat samples. No orientation or calibration is applied. Returns SAMPLE_NOT_AVAILABLE during the 50 ms settling interval after initialization or recovery, SENSOR_NOT_AVAILABLE for an absent sensor, and INTERNAL_ERROR on SPI, identity or configuration failure.",
       "properties": [
         {
           "name": "sensor_index",
@@ -1434,7 +1434,7 @@
       "code": "0x79",
       "direction": "client_to_controller",
       "category": "Connection",
-      "description": "Publish the latest completed sample using the requested scheduling interval without rounding it to calculation ticks. Delivery is subject to transport capacity and task scheduling. Requires READY, an enabled heartbeat and running odometry. Replaces an existing subscription for this source. Interval must be at least twice the calculation period. No renewal is needed. Stop/reset of calculation pauses samples until fresh measurements exist; unsubscribe, INIT, disconnect or watchdog timeout removes subscriptions.",
+      "description": "Create or replace this connection's subscription for an odometry source. Requires READY, enabled heartbeat and running odometry. The interval must be at least twice the calculation period. Stop or reset pauses delivery until a fresh sample is available.",
       "properties": [
         {
           "name": "source",
@@ -1462,14 +1462,19 @@
         "INIT_REQUIRED",
         "CLOCK_NOT_READY",
         "ODOMETRY_NOT_INITIALIZED"
-      ]
+      ],
+      "retired": {
+        "since": "2.6.0",
+        "replacement": "SUBSCRIBE",
+        "removal_major": 3
+      }
     },
     {
       "command": "UNSUBSCRIBE_ODOMETRY",
       "code": "0x7a",
       "direction": "client_to_controller",
       "category": "Connection",
-      "description": "Remove this source subscription; succeeds if already absent. Does not stop odometry calculation.",
+      "description": "Remove this connection's subscription for an odometry source. Succeeds if already absent and leaves odometry calculation running.",
       "properties": [
         {
           "name": "source",
@@ -1486,14 +1491,19 @@
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
         "INIT_REQUIRED"
-      ]
+      ],
+      "retired": {
+        "since": "2.6.0",
+        "replacement": "UNSUBSCRIBE",
+        "removal_major": 3
+      }
     },
     {
       "command": "ENCODER_ODOMETRY_EVENT",
       "code": "0x7b",
       "direction": "controller_to_client",
       "category": "Connection",
-      "description": "Unsolicited latest encoder sample, message_id zero. No response is expected. Slow transports skip intermediate samples rather than queueing stale history.",
+      "description": "Deliver the latest encoder sample using message ID zero. No ACK is required. Slow transports skip intermediate samples.",
       "properties": [
         {
           "name": "encoder_index",
@@ -1521,14 +1531,19 @@
           "description": "Encoder odometry radians."
         }
       ],
-      "errors": []
+      "errors": [],
+      "retired": {
+        "since": "2.6.0",
+        "replacement": "TELEMETRY_EVENT",
+        "removal_major": 3
+      }
     },
     {
       "command": "PLATFORM_ODOMETRY_EVENT",
       "code": "0x7c",
       "direction": "controller_to_client",
       "category": "Connection",
-      "description": "Unsolicited latest platform sample, message_id zero. No response is expected. Timestamp is the measurement time, not the transmission time.",
+      "description": "Deliver the latest platform sample using message ID zero. No ACK is required. The timestamp records measurement time.",
       "properties": [
         {
           "name": "timestamp_us",
@@ -1561,14 +1576,19 @@
           "description": "Heading radians."
         }
       ],
-      "errors": []
+      "errors": [],
+      "retired": {
+        "since": "2.6.0",
+        "replacement": "TELEMETRY_EVENT",
+        "removal_major": 3
+      }
     },
     {
       "command": "POLL_TELEMETRY",
       "code": "0x7d",
       "direction": "client_to_controller",
       "category": "Connection",
-      "description": "I2C master service request. Allows at most one due odometry event before its empty ACK, so the master can clock out telemetry without waiting indefinitely when no sample is available. USB clients receive events automatically and do not need this command.",
+      "description": "Allow an I2C master to read at most one due telemetry event followed by an empty ACK. Return only the ACK when no sample is available. USB clients receive events automatically.",
       "properties": [],
       "errors": [
         "INVALID_LENGTH",
@@ -1810,7 +1830,7 @@
       "command": "INITIALIZE_MOTOR_POSITION_PID_CONTROLLER",
       "code": "0x10",
       "direction": "client_to_controller",
-      "description": "Protocol 2.3: initialize a position PID over the existing velocity controller. Initialize a bounded position PID loop over an already running motor velocity controller. Zero is the current encoder position; initially holds zero. Stop/delete/reinitialize of velocity control discards position tuning. Clears position PID history. Ki and Kd may be zero to disable I and D. Integral limits bound the integral velocity contribution.",
+      "description": "Initialize a position PID over the existing velocity controller. Initialize a bounded position PID loop over an already running motor velocity controller. Zero is the current encoder position; initially holds zero. Stop/delete/reinitialize of velocity control discards position tuning. Clears position PID history. Ki and Kd may be zero to disable I and D. Integral limits bound the integral velocity contribution.",
       "properties": [
         {
           "name": "motor_index",
@@ -1866,7 +1886,7 @@
       "command": "INITIALIZE_PLATFORM_POSITION_PID_CONTROLLER",
       "code": "0x4E",
       "direction": "client_to_controller",
-      "description": "Protocol 2.3: initialize a position PID over the existing velocity controller. Initialize bounded pose control after START_PLATFORM_CONTROLLER. Starts odometry if needed, preserves its world frame and zeros velocity targets. No motion until SET_PLATFORM_POSITION. Supports omni, mecanum and differential bases. Clears position PID history. Ki and Kd may be zero to disable I and D. Integral limits bound the integral velocity contribution.",
+      "description": "Initialize a position PID over the existing velocity controller. Initialize bounded pose control after START_PLATFORM_CONTROLLER. Starts odometry if needed, preserves its world frame and zeros velocity targets. No motion until SET_PLATFORM_POSITION. Supports omni, mecanum and differential bases. Clears position PID history. Ki and Kd may be zero to disable I and D. Integral limits bound the integral velocity contribution.",
       "properties": [
         {
           "name": "linear_kp",
@@ -1939,6 +1959,95 @@
         "PLATFORM_NOT_INITIALIZED",
         "ENCODER_NOT_INITIALIZED"
       ]
+    },
+    {
+      "command": "SUBSCRIBE",
+      "code": "0x80",
+      "direction": "client_to_controller",
+      "category": "Telemetry",
+      "description": "Create or replace this connection's subscription for a topic and resource. Requires READY and enabled heartbeat. Odometry must be running. The interval must meet the topic minimum and, for odometry, be at least twice the calculation period. Failed reads pause delivery until recovery.",
+      "properties": [
+        {
+          "name": "topic_id",
+          "type": "uint8_t",
+          "enum": "telemetry_topic",
+          "description": "Generated telemetry topic enum."
+        },
+        {
+          "name": "index",
+          "type": "uint8_t",
+          "description": "Resource index; platform uses 0. Hardware availability is checked by firmware."
+        },
+        {
+          "name": "interval_ms",
+          "type": "uint32_t",
+          "range": [
+            2,
+            3600000
+          ],
+          "description": "Requested delivery interval in milliseconds; scheduling is best effort."
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "ODOMETRY_NOT_INITIALIZED",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR",
+        "SUBSCRIPTION_LIMIT"
+      ]
+    },
+    {
+      "command": "UNSUBSCRIBE",
+      "code": "0x81",
+      "direction": "client_to_controller",
+      "category": "Telemetry",
+      "description": "Remove this connection's subscription for a topic and resource. Requires READY. Succeeds if already absent and leaves calculation running.",
+      "properties": [
+        {
+          "name": "topic_id",
+          "type": "uint8_t",
+          "enum": "telemetry_topic",
+          "description": "Generated telemetry topic enum."
+        },
+        {
+          "name": "index",
+          "type": "uint8_t",
+          "description": "Resource index; platform uses 0. Hardware availability is checked by firmware."
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY"
+      ]
+    },
+    {
+      "command": "TELEMETRY_EVENT",
+      "code": "0x82",
+      "direction": "controller_to_client",
+      "category": "Telemetry",
+      "description": "Deliver the latest sample for a topic and resource using message ID zero. The topic selects the payload object. No ACK is required. Odometry timestamps mark acquisition; sensor timestamps mark register-read completion. Slow transports skip intermediate samples.",
+      "properties": [
+        {
+          "name": "topic_id",
+          "type": "uint8_t",
+          "enum": "telemetry_topic",
+          "description": "Generated telemetry topic enum."
+        },
+        {
+          "name": "index",
+          "type": "uint8_t",
+          "description": "Resource index; platform uses 0. Hardware availability is checked by firmware."
+        }
+      ],
+      "topic_payload": {
+        "discriminator": "topic_id"
+      },
+      "errors": []
     }
   ],
   "objects": [
@@ -2224,6 +2333,83 @@
           "description": "Z angular velocity in rad/s."
         }
       ]
+    },
+    {
+      "name": "temperature_sample",
+      "description": "Timestamped temperature register reading in degrees Celsius.",
+      "properties": [
+        {
+          "name": "timestamp_us",
+          "type": "uint64_t",
+          "description": "Sensor register-read completion timestamp in the selected clock domain; not a hardware conversion timestamp."
+        },
+        {
+          "name": "clock_mode",
+          "type": "uint8_t",
+          "description": "0 uptime, 1 Unix wall time."
+        },
+        {
+          "name": "clock_quality",
+          "type": "uint8_t",
+          "description": "1 valid, 2 stale."
+        },
+        {
+          "name": "celsius",
+          "type": "double",
+          "description": "Temperature in degrees Celsius."
+        }
+      ]
+    },
+    {
+      "name": "imu_telemetry_sample",
+      "description": "Timestamped IMU register reading. Acceleration and angular velocity are not synchronized with each other.",
+      "properties": [
+        {
+          "name": "timestamp_us",
+          "type": "uint64_t",
+          "description": "Sensor register-read completion timestamp in the selected clock domain; not a hardware conversion timestamp."
+        },
+        {
+          "name": "clock_mode",
+          "type": "uint8_t",
+          "description": "0 uptime, 1 Unix wall time."
+        },
+        {
+          "name": "clock_quality",
+          "type": "uint8_t",
+          "description": "1 valid, 2 stale."
+        },
+        {
+          "name": "acceleration_x",
+          "type": "double",
+          "description": "X acceleration in m/s^2, including gravity."
+        },
+        {
+          "name": "acceleration_y",
+          "type": "double",
+          "description": "Y acceleration in m/s^2, including gravity."
+        },
+        {
+          "name": "acceleration_z",
+          "type": "double",
+          "description": "Z acceleration in m/s^2, including gravity."
+        },
+        {
+          "name": "angular_velocity_x",
+          "type": "double",
+          "description": "X angular velocity in rad/s."
+        },
+        {
+          "name": "angular_velocity_y",
+          "type": "double",
+          "description": "Y angular velocity in rad/s."
+        },
+        {
+          "name": "angular_velocity_z",
+          "type": "double",
+          "description": "Z angular velocity in rad/s."
+        }
+      ]
     }
   ],
   "header": {
@@ -2323,6 +2509,41 @@
       "code": 16,
       "name": "SENSOR_NOT_AVAILABLE",
       "description": "The selected sensor is not defined on this board."
+    },
+    {
+      "code": 17,
+      "name": "SUBSCRIPTION_LIMIT",
+      "description": "This connection has no free subscription slots; unsubscribe an existing source first."
+    }
+  ],
+  "topics": [
+    {
+      "id": 1,
+      "name": "ENCODER_ODOMETRY",
+      "payload_type": "encoder_odometry_sample",
+      "index_max": 3,
+      "min_interval_ms": 2
+    },
+    {
+      "id": 2,
+      "name": "PLATFORM_ODOMETRY",
+      "payload_type": "platform_odometry_sample",
+      "index_max": 0,
+      "min_interval_ms": 2
+    },
+    {
+      "id": 3,
+      "name": "TEMPERATURE",
+      "payload_type": "temperature_sample",
+      "index_max": 255,
+      "min_interval_ms": 250
+    },
+    {
+      "id": 4,
+      "name": "IMU",
+      "payload_type": "imu_telemetry_sample",
+      "index_max": 255,
+      "min_interval_ms": 10
     }
   ]
 }

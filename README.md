@@ -10,6 +10,11 @@ and `controller.supports_sensor('imu')` checks both hardware and firmware suppor
 Profiles are included in package releases; normal use requires no download.
 See [board profiles and sensors](docs/protocol-v2.md#board-profiles-and-sensors).
 
+Use `controller.subscribe(Topic.TEMPERATURE, callback, index=0, interval_ms=250)`
+for streamed samples. The same API covers encoder odometry, platform odometry,
+temperature, and IMU. See [subscriptions](docs/connection-monitoring.md) for
+availability checks, callback behavior, and cleanup.
+
 ## Installation
 Install pykinisi with pip:
 ```bash
