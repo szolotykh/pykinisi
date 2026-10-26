@@ -53,3 +53,12 @@ def supports_board_sensor(info, kind, index=0):
     return (required_minor is not None and type(major) is int and major == 2 and
             type(minor) is int and required_minor <= minor <= 255 and
             has_board_sensor(info, kind, index))
+
+
+def supports_motor_current(info, index=0):
+    """Require both a motor current sensor and protocol support."""
+    profile = get_board_profile(info)
+    major, minor = _field(info, 'protocol_major'), _field(info, 'protocol_minor')
+    return (type(index) is int and type(major) is int and major == 2 and
+            type(minor) is int and 7 <= minor <= 255 and profile is not None and
+            any(motor['id'] == index and motor['current_sense'] for motor in profile['motor_features']))

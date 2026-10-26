@@ -136,7 +136,7 @@ class FirmwareIntegrationTests(unittest.TestCase):
         directory = tempfile.TemporaryDirectory(prefix="pykinisi-firmware-")
         cls.addClassCleanup(directory.cleanup)
         binary = Path(directory.name) / ("session.dll" if os.name == "nt" else "session.so")
-        command = [compiler, "-std=c11", "-shared", "-Wall", "-Wextra", "-Werror"]
+        command = [compiler, "-std=c11", "-shared", "-Wall", "-Wextra", "-Werror", "-DMP_V4"]
         if os.name != "nt":
             command.append("-fPIC")
         for include in ("include", "lib/connection", "lib/protocol", "lib/time_sync", "lib/initialization"):
@@ -238,6 +238,27 @@ class FirmwareIntegrationTests(unittest.TestCase):
         self.assertEqual(samples[-1].clock_quality, 1)
         handle.unsubscribe()
         self.assertFalse(handle.active)
+
+    def test_current_pull_and_four_streams_with_production_firmware(self):
+        client, serial = self.connect_client(wall_clock=False)
+        client.set_heartbeat_config(True, 1000)
+        readings = [[] for _ in range(4)]
+        handles = []
+        for index in range(4):
+            self.assertTrue(client.supports_motor_current(index))
+            self.assertEqual(client.get_motor_current(index), index + .125)
+            handles.append(client.subscribe(Topic.MOTOR_CURRENT, readings[index].append, index=index, interval_ms=20))
+        serial.advance(20000)
+        deadline = time.monotonic() + 1
+        while not all(readings) and time.monotonic() < deadline:
+            time.sleep(.005)
+        for index, samples in enumerate(readings):
+            self.assertTrue(samples, client.last_error)
+            self.assertEqual(samples[-1].amps, index + .125)
+            self.assertEqual(samples[-1].clock_quality, 1)
+        for handle in handles:
+            handle.unsubscribe()
+            self.assertFalse(handle.active)
 
 
 if __name__ == "__main__":

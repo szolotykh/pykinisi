@@ -1,5 +1,5 @@
 {
-  "version": "2.6.0",
+  "version": "2.7.0",
   "commands": [
     {
       "command": "GET_TEMPERATURE",
@@ -55,6 +55,38 @@
         "type": "object",
         "direction": "controller_to_client",
         "description": "Six little-endian IEEE 754 doubles, 48 bytes total."
+      }
+    },
+    {
+      "command": "GET_MOTOR_CURRENT",
+      "code": "0x52",
+      "direction": "client_to_controller",
+      "description": "Read the filtered motor-current estimate in amperes. The unsigned reading measures driver high-side current; PWM decay intervals and the analog filter affect it. Reading does not enable or initialize the motor.",
+      "properties": [
+        {
+          "name": "motor_index",
+          "type": "uint8_t",
+          "range": [
+            0,
+            3
+          ],
+          "description": "Motor connector index."
+        }
+      ],
+      "category": "Sensors",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "SENSOR_NOT_AVAILABLE",
+        "SAMPLE_OUT_OF_RANGE",
+        "INTERNAL_ERROR"
+      ],
+      "response": {
+        "name": "current_amps",
+        "type": "double",
+        "direction": "controller_to_client",
+        "description": "Nonnegative current estimate in amperes, encoded as a little-endian IEEE 754 64-bit double."
       }
     },
     {
@@ -1996,7 +2028,8 @@
         "ODOMETRY_NOT_INITIALIZED",
         "SENSOR_NOT_AVAILABLE",
         "INTERNAL_ERROR",
-        "SUBSCRIPTION_LIMIT"
+        "SUBSCRIPTION_LIMIT",
+        "SAMPLE_OUT_OF_RANGE"
       ]
     },
     {
@@ -2410,6 +2443,32 @@
           "description": "Z angular velocity in rad/s."
         }
       ]
+    },
+    {
+      "name": "motor_current_sample",
+      "description": "Timestamped filtered motor-current estimate.",
+      "properties": [
+        {
+          "name": "timestamp_us",
+          "type": "uint64_t",
+          "description": "ADC read completion timestamp in the selected clock domain."
+        },
+        {
+          "name": "clock_mode",
+          "type": "uint8_t",
+          "description": "0 uptime, 1 Unix wall time."
+        },
+        {
+          "name": "clock_quality",
+          "type": "uint8_t",
+          "description": "1 valid, 2 stale."
+        },
+        {
+          "name": "amps",
+          "type": "double",
+          "description": "Nonnegative filtered high-side current estimate in amperes."
+        }
+      ]
     }
   ],
   "header": {
@@ -2458,7 +2517,7 @@
     {
       "code": 6,
       "name": "INTERNAL_ERROR",
-      "description": "The controller could not execute or encode the operation."
+      "description": "The controller could not execute or encode the operation. During motor initialization, possible causes include missing motor power, a driver communication failure, or a faulty driver."
     },
     {
       "code": 7,
@@ -2514,6 +2573,11 @@
       "code": 17,
       "name": "SUBSCRIPTION_LIMIT",
       "description": "This connection has no free subscription slots; unsubscribe an existing source first."
+    },
+    {
+      "code": 18,
+      "name": "SAMPLE_OUT_OF_RANGE",
+      "description": "The sensor reading is saturated; no valid measurement can be returned."
     }
   ],
   "topics": [
@@ -2544,6 +2608,13 @@
       "payload_type": "imu_telemetry_sample",
       "index_max": 255,
       "min_interval_ms": 10
+    },
+    {
+      "id": 5,
+      "name": "MOTOR_CURRENT",
+      "payload_type": "motor_current_sample",
+      "index_max": 3,
+      "min_interval_ms": 20
     }
   ]
 }

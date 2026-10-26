@@ -52,7 +52,7 @@ def validate_metadata(schema, sizes):
         for field, low, high in [('index_max', 0, 255), ('min_interval_ms', 2, 3600000)]:
             if type(topic.get(field)) is not int or not low <= topic[field] <= high:
                 raise ValueError('Invalid topic ' + field)
-    if not {'ENCODER_ODOMETRY', 'PLATFORM_ODOMETRY', 'TEMPERATURE', 'IMU'} <= names:
+    if not {'ENCODER_ODOMETRY', 'PLATFORM_ODOMETRY', 'TEMPERATURE', 'IMU', 'MOTOR_CURRENT'} <= names:
         raise ValueError('Schema is missing runtime topics')
     for command in commands.values():
         for prop in command.get('properties', []):

@@ -31,6 +31,22 @@ finally:
 | `Topic.PLATFORM_ODOMETRY` | 0 | `PlatformOdometrySample` | Twice the calculation period |
 | `Topic.TEMPERATURE` | Sensor index | `TemperatureSample`, including `celsius` | 250 ms |
 | `Topic.IMU` | Sensor index | `ImuTelemetrySample`, acceleration and angular velocity | 10 ms |
+| `Topic.MOTOR_CURRENT` | Motor index (0–3) | `MotorCurrentSample`, including `amps` | 20 ms |
+
+Motor current requires protocol 2.7 and fitted sensing hardware. Pull and streamed
+values are nonnegative filtered high-side current estimates in amperes. PWM
+affects the reading; it is not signed winding or battery current. Reading never
+enables a motor. Saturation returns `SAMPLE_OUT_OF_RANGE`; a failed streamed read
+pauses delivery until recovery.
+
+```python
+if controller.supports_motor_current(0):
+    print(controller.get_motor_current(0))  # amperes
+    with controller.subscribe(Topic.MOTOR_CURRENT,
+                              lambda sample: print(sample.amps, sample.timestamp_us),
+                              index=0, interval_ms=100):
+        time.sleep(1)
+```
 
 Generic subscriptions require protocol 2.6 or newer within major 2. `supports_topic(topic, index=0)` combines protocol support with the bundled board profile. Unknown boards return false from this query; explicit requests defer hardware validation to firmware. Older firmware can still use GET methods and the retired odometry API.
 
@@ -38,6 +54,6 @@ Callbacks run on one dedicated worker, separately from serial reads and heartbea
 
 `subscribe_odometry(source, interval_ms)`, `unsubscribe_odometry(source)`, and their event messages are retired since protocol 2.6 and remain supported throughout major 2. Their removal is eligible in major 3. Use `get_subscription_sample(source)` only with this legacy API: sources 0–3 are encoders and 4 is the platform.
 
-Subscription intervals must be at least twice the calculation period: the default 50 ms calculation period permits 100 ms or longer subscriptions. Keep heartbeat monitoring enabled while subscribed. Disconnect or controller watchdog expiry clears subscriptions; reconnect and explicitly reconfigure motion before resuming.
+Odometry subscription intervals must be at least twice the calculation period: the default 50 ms calculation period permits 100 ms or longer subscriptions. Keep heartbeat monitoring enabled while subscribed. Disconnect or controller watchdog expiry clears subscriptions; reconnect and explicitly reconfigure motion before resuming.
 
 Heartbeat traffic demonstrates that the SDK connection is alive, not that the application has issued a fresh motor setpoint. Motor stop behavior on connection loss is implemented by firmware.

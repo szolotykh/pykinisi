@@ -85,7 +85,7 @@ def schema_fixture():
     payloads = {topic['payload_type'] for topic in bundled['topics']}
     fixture['objects'].extend(obj for obj in bundled['objects'] if obj['name'] in payloads)
     fixture['commands'].extend({k: v for k, v in cmd.items() if k != 'errors'}
-                               for cmd in bundled['commands'] if cmd['command'] in ('SUBSCRIBE', 'UNSUBSCRIBE', 'TELEMETRY_EVENT'))
+                               for cmd in bundled['commands'] if cmd['command'] in ('SUBSCRIBE', 'UNSUBSCRIBE', 'TELEMETRY_EVENT', 'GET_MOTOR_CURRENT'))
     return fixture
 
 
@@ -370,7 +370,7 @@ class UpdaterTests(unittest.TestCase):
             root = Path(directory)
             schema_path, output, snapshot = root / "input.json", root / "commands.py", root / "bundled.json"
             for version, missing in (("2.5.0", {"GET_TEMPERATURE"}), ("2.4.0", {"GET_IMU"}),
-                                     ("2.3.1", {"GET_TEMPERATURE", "GET_IMU"})):
+                                     ("2.3.1", {"GET_TEMPERATURE", "GET_IMU"}), ("2.6.0", {"GET_MOTOR_CURRENT"})):
                 with self.subTest(version=version, missing=missing):
                     schema = schema_fixture()
                     schema["version"] = version

@@ -47,6 +47,11 @@ static uint8_t fixture_handler(controller_command_t *command, protocol_send_fn r
         return RESPONSE_OK;
     }
     if (command->commandType == STOP_MOTOR) return RESPONSE_OK;
+    if (command->commandType == GET_MOTOR_CURRENT) {
+        double amps = command->properties.get_motor_current.motor_index + 0.125;
+        reply((uint8_t *)&amps, sizeof(amps));
+        return RESPONSE_OK;
+    }
     if (command->commandType == GET_ENCODER_VALUE) {
         uint16_t value = 0xBEEF;
         reply((uint8_t *)&value, sizeof(value));
