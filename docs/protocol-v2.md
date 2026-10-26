@@ -97,7 +97,10 @@ still connect and use compatible commands. Direct sensor reads on unknown boards
 rely on firmware availability errors. A known absent sensor or invalid sensor ID
 is rejected before I/O. No profile is borrowed from a different board revision.
 Per-motor `current_sense` and `current_limit` flags describe fitted hardware;
-current ADC reads and adjustable-current commands remain unimplemented in firmware.
+current reads and subscriptions require protocol 2.7. Use
+`supports_motor_current(index)` to check availability and see
+[motor current](connection-monitoring.md) for usage.
+Adjustable-current commands remain unimplemented in firmware.
 
 | Method | Minimum protocol | Result |
 | --- | --- | --- |

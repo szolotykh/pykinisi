@@ -13,7 +13,7 @@ class SubscriptionTests(unittest.TestCase):
     def setUp(self):
         self.transport = FakeSerial()
         self.board = Board(self.transport)
-        self.board.protocol = (2, 6, 0)
+        self.board.protocol = (2, 7, 0)
         self.board.identity = (1, 0, 4, 0)
         self.client = KinisiController(request_timeout=0.12, init_timeout=0.5)
         patched = patch.object(controller_module.serial, 'Serial', return_value=self.transport)
@@ -23,7 +23,7 @@ class SubscriptionTests(unittest.TestCase):
         self.assertTrue(self.client.connect('TEST'), self.client.last_error)
 
     def event(self, topic=Topic.TEMPERATURE, index=0, value=25.0):
-        count = {Topic.ENCODER_ODOMETRY: 1, Topic.PLATFORM_ODOMETRY: 3, Topic.TEMPERATURE: 1, Topic.IMU: 6}[topic]
+        count = {Topic.ENCODER_ODOMETRY: 1, Topic.PLATFORM_ODOMETRY: 3, Topic.TEMPERATURE: 1, Topic.IMU: 6, Topic.MOTOR_CURRENT: 1}[topic]
         payload = bytes((topic, index)) + struct.pack('<QBB' + 'd' * count, 2**55 + 7, 1, 1, *([value] * count))
         return frame(TELEMETRY_EVENT, 0, payload)
 
@@ -34,7 +34,7 @@ class SubscriptionTests(unittest.TestCase):
                 self.transport.inject(self.event(Topic(payload[0]), payload[1]))
         self.board.command_hook = respond
         for topic, interval in ((Topic.ENCODER_ODOMETRY, 100), (Topic.PLATFORM_ODOMETRY, 100),
-                                (Topic.TEMPERATURE, 250), (Topic.IMU, 10)):
+                                (Topic.TEMPERATURE, 250), (Topic.IMU, 10), (Topic.MOTOR_CURRENT, 20)):
             received = []
             self.assertTrue(self.client.supports_topic(topic))
             handle = self.client.subscribe(topic, received.append, interval_ms=interval)
@@ -59,6 +59,13 @@ class SubscriptionTests(unittest.TestCase):
         self.assertEqual(first, [])
         self.client.set_heartbeat_config(False, 500)
         self.assertFalse(new.active)
+
+    def test_current_stream_rejects_negative_or_nonfinite_samples(self):
+        for value in (-1, float('nan'), float('inf')):
+            with self.assertRaises(ValueError):
+                decode_telemetry_event(self.event(Topic.MOTOR_CURRENT, 3, value)[4:])
+        topic, index, sample = decode_telemetry_event(self.event(Topic.MOTOR_CURRENT, 3, 0)[4:])
+        self.assertEqual((topic, index, sample.amps, sample.timestamp_us), (Topic.MOTOR_CURRENT, 3, 0, 2**55 + 7))
 
     def test_slow_callback_does_not_block_requests_and_coalesces(self):
         started, release = threading.Event(), threading.Event()

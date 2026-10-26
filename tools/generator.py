@@ -27,7 +27,7 @@ DIRECTIONS = {"client_to_controller", "controller_to_client"}
 SESSION_COMMANDS = {
     "PING", "SET_HEARTBEAT_CONFIG", "SUBSCRIBE_ODOMETRY", "UNSUBSCRIBE_ODOMETRY",
     "ENCODER_ODOMETRY_EVENT", "PLATFORM_ODOMETRY_EVENT",
-    "GET_TEMPERATURE", "GET_IMU",
+    "GET_TEMPERATURE", "GET_IMU", "GET_MOTOR_CURRENT",
     "SUBSCRIBE", "UNSUBSCRIBE", "TELEMETRY_EVENT",
 }
 
@@ -228,6 +228,9 @@ def _generate_method(cmd, objects):
     if cmd['command'] in ('GET_TEMPERATURE', 'GET_IMU'):
         result += "        if type(sensor_index) is not int or not 0 <= sensor_index <= 255:\n"
         result += "            raise ValueError('sensor_index must be an integer from 0 to 255')\n"
+    if cmd['command'] == 'GET_MOTOR_CURRENT':
+        result += "        if type(motor_index) is not int or not 0 <= motor_index <= 3:\n"
+        result += "            raise ValueError('motor_index must be an integer from 0 to 3')\n"
     if velocity:
         result += "        if any(not math.isfinite(value) or value < 0 for value in (kp, ki, kd, integral_limit)) or integral_limit > 100:\n"
         result += "            raise ValueError('Velocity gains must be finite and nonnegative; integral_limit must be 0..100 PWM percentage points')\n"
@@ -245,6 +248,11 @@ def _generate_method(cmd, objects):
         result += "        if not math.isfinite(temperature):\n"
         result += "            raise ValueError('Invalid temperature payload')\n"
         result += "        return temperature\n"
+    elif cmd['command'] == 'GET_MOTOR_CURRENT':
+        result += "        amps = _unpack_payload('<d', result)[0]\n"
+        result += "        if not math.isfinite(amps) or amps < 0:\n"
+        result += "            raise ValueError('Invalid motor current payload')\n"
+        result += "        return amps\n"
     elif obj:
         result += f"        return {get_object_name(obj)}.decode(result)\n"
     elif response:
@@ -314,6 +322,8 @@ def decode_telemetry_event(payload):
     if (sample.clock_mode not in (0, 1) or sample.clock_quality not in (1, 2) or
             any(isinstance(value, float) and not math.isfinite(value) for value in vars(sample).values())):
         raise ValueError('Invalid telemetry sample')
+    if topic == Topic.MOTOR_CURRENT and sample.amps < 0:
+        raise ValueError('Invalid motor current payload')
     return Topic(topic), index, sample
 
 

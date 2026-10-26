@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from pykinisi import (KinisiController, KinisiCommands, ImuSample, ErrorCode,
-                     ControllerError, ProtocolError, GET_TEMPERATURE, GET_IMU, ERROR)
+                     ControllerError, ProtocolError, GET_TEMPERATURE, GET_IMU, GET_MOTOR_CURRENT, ERROR, Topic)
 from test_controller import FakeSerial, Board, frame, wait_until, controller_module
 from test_generator import recording_client
 
@@ -18,6 +18,23 @@ FIELDS = tuple(field + '_' + axis for field in ('acceleration', 'angular_velocit
 class SensorCodecTests(unittest.TestCase):
     def setUp(self):
         self.client = recording_client({'KinisiCommands': KinisiCommands})
+
+    def test_current_indices_and_numeric_contract(self):
+        for index in range(4):
+            self.client.reply = struct.pack('<d', index + 0.125)
+            self.assertEqual(self.client.get_motor_current(index), index + 0.125)
+            self.assertEqual(self.client.calls[-1], (0x52, bytes([index]), 8))
+        for index in (-1, 4, 255, True, '0', 0.5, None):
+            with self.assertRaises(ValueError):
+                self.client.get_motor_current(index)
+        for value in (-1, float('nan'), float('inf'), -float('inf')):
+            self.client.reply = struct.pack('<d', value)
+            with self.assertRaisesRegex(ValueError, 'Invalid motor current'):
+                self.client.get_motor_current(0)
+        for length in (0, 7, 9):
+            self.client.reply = bytes(length)
+            with self.assertRaises(ValueError):
+                self.client.get_motor_current(0)
 
     def test_signed_measurements_and_request_bytes(self):
         for value in (-40.0, -0.0625, 0.0, 25.0625, 125.0):
@@ -53,6 +70,30 @@ class SensorCodecTests(unittest.TestCase):
 
 
 class SensorSessionTests(unittest.TestCase):
+    def test_current_reading_and_error_identity(self):
+        client, transport, board = self.connect(protocol=7)
+        for index in range(4):
+            self.assertTrue(client.supports_motor_current(index))
+        board.command_hook = lambda command, mid, payload: transport.inject(frame(command, mid, struct.pack('<d', payload[0] + .5)))
+        for index in range(4):
+            self.assertEqual(client.get_motor_current(index), index + .5)
+        board.command_hook = lambda command, mid, payload: transport.inject(frame(ERROR, mid, bytes([command, ErrorCode.SAMPLE_OUT_OF_RANGE])))
+        with self.assertRaises(ControllerError) as raised:
+            client.get_motor_current(0)
+        self.assertEqual(raised.exception.error_code, ErrorCode.SAMPLE_OUT_OF_RANGE)
+
+    def test_current_protocol_and_hardware_gates_before_write(self):
+        for revision, protocol in ((4, 6), (99, 6), (1, 7), (2, 7), (3, 7)):
+            client, transport, _ = self.connect(minor=revision, protocol=protocol)
+            self.assertFalse(client.supports_motor_current())
+            count = len(transport.frames)
+            with self.assertRaises(ProtocolError):
+                client.get_motor_current(0)
+            with self.assertRaises(ProtocolError):
+                client.subscribe(Topic.MOTOR_CURRENT, lambda sample: None, interval_ms=100)
+            self.assertEqual(len(transport.frames), count)
+            client.disconnect()
+
     def connect(self, minor=4, protocol=5, client=None):
         transport = FakeSerial()
         board = Board(transport)

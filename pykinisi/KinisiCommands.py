@@ -9,10 +9,11 @@ import struct
 from enum import IntEnum
 
 
-PROTOCOL_VERSION = (2, 6, 0)
+PROTOCOL_VERSION = (2, 7, 0)
 
 GET_TEMPERATURE = 0x50
 GET_IMU = 0x51
+GET_MOTOR_CURRENT = 0x52
 INITIALIZE_MOTOR = 0x01
 SET_MOTOR_SPEED = 0x02
 STOP_MOTOR = 0x03
@@ -105,6 +106,7 @@ class ErrorCode(IntEnum):
     INIT_REQUIRED = 15
     SENSOR_NOT_AVAILABLE = 16
     SUBSCRIPTION_LIMIT = 17
+    SAMPLE_OUT_OF_RANGE = 18
 
 
 ERROR_DESCRIPTIONS = {
@@ -113,7 +115,7 @@ ERROR_DESCRIPTIONS = {
     3: 'The received command ID is not accepted by the controller.',
     4: 'The complete message has an invalid header or payload length.',
     5: 'The motor belongs to a platform; use the corresponding platform command.',
-    6: 'The controller could not execute or encode the operation.',
+    6: 'The controller could not execute or encode the operation. During motor initialization, possible causes include missing motor power, a driver communication failure, or a faulty driver.',
     7: 'Initial clock setup is incomplete; wait for READY. Uptime mode also supports READY.',
     8: 'Initial time sync exhausted its attempts without a valid sample.',
     9: 'Odometry is not running; start odometry before requesting a measurement.',
@@ -125,6 +127,7 @@ ERROR_DESCRIPTIONS = {
     15: 'Send a valid INIT request before performing this connection-dependent operation.',
     16: 'The selected sensor is not defined on this board.',
     17: 'This connection has no free subscription slots; unsubscribe an existing source first.',
+    18: 'The sensor reading is saturated; no valid measurement can be returned.',
 }
 
 
@@ -510,12 +513,44 @@ class ImuTelemetrySample:
         return cls(*_unpack_payload('<QBBdddddd', payload))
 
 
+class MotorCurrentSample:
+    """Timestamped filtered motor-current estimate.
+
+    timestamp_us: ADC read completion timestamp in the selected clock domain.
+    clock_mode: 0 uptime, 1 Unix wall time.
+    clock_quality: 1 valid, 2 stale.
+    amps: Nonnegative filtered high-side current estimate in amperes.
+    """
+
+    def __init__(self, timestamp_us: int, clock_mode: int, clock_quality: int, amps: float):
+        """Store the fields of one controller payload."""
+        self.timestamp_us = timestamp_us
+        self.clock_mode = clock_mode
+        self.clock_quality = clock_quality
+        self.amps = amps
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 18
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<QBBd', self.timestamp_us, self.clock_mode, self.clock_quality, self.amps))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'MotorCurrentSample':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<QBBd', payload))
+
+
 class Topic(IntEnum):
     """Stable wire identifiers for telemetry sources."""
     ENCODER_ODOMETRY = 1
     PLATFORM_ODOMETRY = 2
     TEMPERATURE = 3
     IMU = 4
+    MOTOR_CURRENT = 5
 
 
 TOPIC_DEFINITIONS = {
@@ -523,6 +558,7 @@ TOPIC_DEFINITIONS = {
     Topic.PLATFORM_ODOMETRY: (PlatformOdometrySample, 0, 2),
     Topic.TEMPERATURE: (TemperatureSample, 255, 250),
     Topic.IMU: (ImuTelemetrySample, 255, 10),
+    Topic.MOTOR_CURRENT: (MotorCurrentSample, 3, 20),
 }
 
 
@@ -546,6 +582,8 @@ def decode_telemetry_event(payload):
     if (sample.clock_mode not in (0, 1) or sample.clock_quality not in (1, 2) or
             any(isinstance(value, float) and not math.isfinite(value) for value in vars(sample).values())):
         raise ValueError('Invalid telemetry sample')
+    if topic == Topic.MOTOR_CURRENT and sample.amps < 0:
+        raise ValueError('Invalid motor current payload')
     return Topic(topic), index, sample
 
 
@@ -602,6 +640,25 @@ class KinisiCommands:
         if not all(math.isfinite(value) for value in vars(sample).values()):
             raise ValueError('Invalid IMU payload')
         return sample
+
+    def get_motor_current(self, motor_index: int) -> float:
+        """Read the filtered motor-current estimate in amperes. The unsigned reading measures
+        driver high-side current; PWM decay intervals and the analog filter affect it.
+        Reading does not enable or initialize the motor.
+
+        motor_index: Motor connector index.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED,
+        SENSOR_NOT_AVAILABLE, SAMPLE_OUT_OF_RANGE, INTERNAL_ERROR.
+        """
+        if type(motor_index) is not int or not 0 <= motor_index <= 3:
+            raise ValueError('motor_index must be an integer from 0 to 3')
+        payload = struct.pack('<B', motor_index)
+        result = self._request(GET_MOTOR_CURRENT, payload, 8)
+        amps = _unpack_payload('<d', result)[0]
+        if not math.isfinite(amps) or amps < 0:
+            raise ValueError('Invalid motor current payload')
+        return amps
 
     def initialize_motor(self, motor_index: int, is_reversed: bool) -> None:
         """This command initializes a motor and prepares it for use. Rejected with MOTOR_OWNED
@@ -1432,7 +1489,8 @@ class KinisiCommands:
         interval_ms: Requested delivery interval in milliseconds; scheduling is best effort.
 
         Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
-        ODOMETRY_NOT_INITIALIZED, SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, SUBSCRIPTION_LIMIT.
+        ODOMETRY_NOT_INITIALIZED, SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, SUBSCRIPTION_LIMIT,
+        SAMPLE_OUT_OF_RANGE.
         """
         validate_topic(topic_id, index)
         if type(interval_ms) is not int or not TOPIC_DEFINITIONS[topic_id][2] <= interval_ms <= 3600000:

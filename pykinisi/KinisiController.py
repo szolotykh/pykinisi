@@ -18,10 +18,10 @@ from .KinisiCommands import (
     GET_ENCODER_ODOMETRY, START_PLATFORM_ODOMETRY, GET_PLATFORM_ODOMETRY,
     PING, SET_HEARTBEAT_CONFIG, SUBSCRIBE_ODOMETRY, UNSUBSCRIBE_ODOMETRY,
     ENCODER_ODOMETRY_EVENT, PLATFORM_ODOMETRY_EVENT,
-    EncoderOdometrySample, PlatformOdometrySample, GET_TEMPERATURE, GET_IMU,
+    EncoderOdometrySample, PlatformOdometrySample, GET_TEMPERATURE, GET_IMU, GET_MOTOR_CURRENT,
     SUBSCRIBE, UNSUBSCRIBE, TELEMETRY_EVENT, Topic, validate_topic, decode_telemetry_event,
 )
-from .board_profile import get_board_profile, supports_board_sensor
+from .board_profile import get_board_profile, supports_board_sensor, supports_motor_current
 from ._version import VERSION
 from .KinisiCommands import (
     INITIALIZE_MOTOR_POSITION_CONTROLLER, RESET_MOTOR_POSITION, SET_MOTOR_POSITION,
@@ -189,6 +189,11 @@ class KinisiController(KinisiCommands):
         with self._lock:
             return supports_board_sensor(self.board_info, kind, index)
 
+    def supports_motor_current(self, index=0):
+        """Check hardware presence and firmware support without performing I/O."""
+        with self._lock:
+            return supports_motor_current(self.board_info, index)
+
     def supports_topic(self, topic, index=0):
         """Check protocol and known hardware; running odometry is checked by firmware."""
         try:
@@ -203,6 +208,8 @@ class KinisiController(KinisiCommands):
                 return index < profile['resources']['encoders']
             if topic == Topic.PLATFORM_ODOMETRY:
                 return True
+            if topic == Topic.MOTOR_CURRENT:
+                return self.supports_motor_current(index)
             if topic in (Topic.TEMPERATURE, Topic.IMU):
                 return self.supports_sensor('temperature' if topic == Topic.TEMPERATURE else 'imu', index)
             return False
@@ -363,8 +370,16 @@ class KinisiController(KinisiCommands):
                 if (not self._ready or self.board_info is None or
                         self.board_info.protocol_major != 2 or self.board_info.protocol_minor < 6):
                     raise ProtocolError('Subscriptions require a ready protocol 2.6+ controller')
+                if payload[0] == Topic.MOTOR_CURRENT and self.board_info.protocol_minor < 7:
+                    raise ProtocolError('Motor current requires a ready protocol 2.7+ controller')
                 if command == SUBSCRIBE and self.board_profile is not None and not self.supports_topic(payload[0], payload[1]):
                     raise ProtocolError('This board does not support the selected telemetry source')
+            if command == GET_MOTOR_CURRENT:
+                if (not self._ready or self.board_info is None or
+                        self.board_info.protocol_major != 2 or self.board_info.protocol_minor < 7):
+                    raise ProtocolError('Motor current requires a ready protocol 2.7+ controller')
+                if self.board_profile is not None and not self.supports_motor_current(payload[0]):
+                    raise ProtocolError('This motor has no current sensor')
             if command in SENSOR_COMMANDS:
                 kind, sensor_minor = SENSOR_COMMANDS[command]
                 if (not self._ready or self.board_info is None or
