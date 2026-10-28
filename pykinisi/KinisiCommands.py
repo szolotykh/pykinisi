@@ -9,11 +9,12 @@ import struct
 from enum import IntEnum
 
 
-PROTOCOL_VERSION = (2, 7, 0)
+PROTOCOL_VERSION = (2, 12, 0)
 
 GET_TEMPERATURE = 0x50
 GET_IMU = 0x51
 GET_MOTOR_CURRENT = 0x52
+GET_MOTOR_FAULTS = 0x53
 INITIALIZE_MOTOR = 0x01
 SET_MOTOR_SPEED = 0x02
 STOP_MOTOR = 0x03
@@ -84,6 +85,11 @@ INITIALIZE_PLATFORM_POSITION_PID_CONTROLLER = 0x4E
 SUBSCRIBE = 0x80
 UNSUBSCRIBE = 0x81
 TELEMETRY_EVENT = 0x82
+SUBSCRIBE_WITH_MODE = 0x83
+CLEAR_MOTOR_FAULTS = 0x54
+GET_MOTOR_CURRENT_LIMIT = 0x55
+SET_MOTOR_CURRENT_LIMIT = 0x56
+SUBSCRIBE_CONFIGURED = 0x84
 
 
 class ErrorCode(IntEnum):
@@ -544,6 +550,159 @@ class MotorCurrentSample:
         return cls(*_unpack_payload('<QBBd', payload))
 
 
+class MotorFaultStatus:
+    """Motor-driver diagnostic status. Ignore detailed flags when status_valid is false; a
+    clear fault input alone does not establish driver health.
+
+    sleep_requested: The sleep control is asserted; reading never wakes the driver.
+    status_valid: Driver diagnostic registers were read successfully. Detailed flags are
+    unknown when false.
+    fault_active: The fault input is asserted or a valid register reports a global fault.
+    overtemperature_warning: Driver temperature warning is reported.
+    undervoltage: Driver supply undervoltage is reported; this does not prove a disconnected
+    supply.
+    charge_pump_undervoltage: Driver charge-pump undervoltage is reported.
+    overcurrent: An overcurrent fault is reported.
+    overtemperature_shutdown: A thermal shutdown fault is reported.
+    open_load: The configured open-load detector reports a fault; detection depends on
+    operating conditions.
+    current_regulation: At least one output reports current regulation; this is not an
+    overcurrent fault.
+    """
+
+    def __init__(self, sleep_requested: bool, status_valid: bool, fault_active: bool, overtemperature_warning: bool, undervoltage: bool, charge_pump_undervoltage: bool, overcurrent: bool, overtemperature_shutdown: bool, open_load: bool, current_regulation: bool):
+        """Store the fields of one controller payload."""
+        self.sleep_requested = sleep_requested
+        self.status_valid = status_valid
+        self.fault_active = fault_active
+        self.overtemperature_warning = overtemperature_warning
+        self.undervoltage = undervoltage
+        self.charge_pump_undervoltage = charge_pump_undervoltage
+        self.overcurrent = overcurrent
+        self.overtemperature_shutdown = overtemperature_shutdown
+        self.open_load = open_load
+        self.current_regulation = current_regulation
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 10
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<??????????', self.sleep_requested, self.status_valid, self.fault_active, self.overtemperature_warning, self.undervoltage, self.charge_pump_undervoltage, self.overcurrent, self.overtemperature_shutdown, self.open_load, self.current_regulation))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'MotorFaultStatus':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        if any(value > 1 for value in payload[0:]):
+            raise ValueError('Invalid motor fault flags')
+        return cls(*_unpack_payload('<??????????', payload))
+
+
+class MotorFaultSample:
+    """Timestamped motor-driver diagnostic status. Timestamp marks completion of the read;
+    faults can be latched rather than new events.
+
+    timestamp_us: ADC read completion timestamp in the selected clock domain.
+    clock_mode: 0 uptime, 1 Unix wall time.
+    clock_quality: 1 valid, 2 stale.
+    sleep_requested: The sleep control is asserted; reading never wakes the driver.
+    status_valid: Driver diagnostic registers were read successfully. Detailed flags are
+    unknown when false.
+    fault_active: The fault input is asserted or a valid register reports a global fault.
+    overtemperature_warning: Driver temperature warning is reported.
+    undervoltage: Driver supply undervoltage is reported; this does not prove a disconnected
+    supply.
+    charge_pump_undervoltage: Driver charge-pump undervoltage is reported.
+    overcurrent: An overcurrent fault is reported.
+    overtemperature_shutdown: A thermal shutdown fault is reported.
+    open_load: The configured open-load detector reports a fault; detection depends on
+    operating conditions.
+    current_regulation: At least one output reports current regulation; this is not an
+    overcurrent fault.
+    """
+
+    def __init__(self, timestamp_us: int, clock_mode: int, clock_quality: int, sleep_requested: bool, status_valid: bool, fault_active: bool, overtemperature_warning: bool, undervoltage: bool, charge_pump_undervoltage: bool, overcurrent: bool, overtemperature_shutdown: bool, open_load: bool, current_regulation: bool):
+        """Store the fields of one controller payload."""
+        self.timestamp_us = timestamp_us
+        self.clock_mode = clock_mode
+        self.clock_quality = clock_quality
+        self.sleep_requested = sleep_requested
+        self.status_valid = status_valid
+        self.fault_active = fault_active
+        self.overtemperature_warning = overtemperature_warning
+        self.undervoltage = undervoltage
+        self.charge_pump_undervoltage = charge_pump_undervoltage
+        self.overcurrent = overcurrent
+        self.overtemperature_shutdown = overtemperature_shutdown
+        self.open_load = open_load
+        self.current_regulation = current_regulation
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 20
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<QBB??????????', self.timestamp_us, self.clock_mode, self.clock_quality, self.sleep_requested, self.status_valid, self.fault_active, self.overtemperature_warning, self.undervoltage, self.charge_pump_undervoltage, self.overcurrent, self.overtemperature_shutdown, self.open_load, self.current_regulation))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'MotorFaultSample':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        if any(value > 1 for value in payload[10:]):
+            raise ValueError('Invalid motor fault flags')
+        return cls(*_unpack_payload('<QBB??????????', payload))
+
+
+class MotorCurrentLimit:
+    """Applied nominal hardware current-regulation setting.
+
+    enabled: Current regulation is enabled on both outputs.
+    threshold_ma: Nominal threshold in milliamps.
+    """
+
+    def __init__(self, enabled: bool, threshold_ma: int):
+        """Store the fields of one controller payload."""
+        self.enabled = enabled
+        self.threshold_ma = threshold_ma
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 3
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<?H', self.enabled, self.threshold_ma))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'MotorCurrentLimit':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        if len(payload) != 3 or payload[0] > 1 or int.from_bytes(payload[1:], 'little') == 0:
+            raise ValueError('Invalid current-limit setting')
+        return cls(*_unpack_payload('<?H', payload))
+
+
+class SubscriptionMode(IntEnum):
+    """Delivery behavior for a generic telemetry subscription."""
+    PERIODIC = 0
+    ON_CHANGE = 1
+
+
+class SubscriptionTrigger(IntEnum):
+    PERIODIC = 0
+    ON_EVENT = 1
+
+
+class SubscriptionDelivery(IntEnum):
+    ALL = 0
+    ON_CHANGE = 1
+
+
+EVENT_TOPICS = (6,)
+
 class Topic(IntEnum):
     """Stable wire identifiers for telemetry sources."""
     ENCODER_ODOMETRY = 1
@@ -551,6 +710,7 @@ class Topic(IntEnum):
     TEMPERATURE = 3
     IMU = 4
     MOTOR_CURRENT = 5
+    MOTOR_FAULTS = 6
 
 
 TOPIC_DEFINITIONS = {
@@ -559,6 +719,7 @@ TOPIC_DEFINITIONS = {
     Topic.TEMPERATURE: (TemperatureSample, 255, 250),
     Topic.IMU: (ImuTelemetrySample, 255, 10),
     Topic.MOTOR_CURRENT: (MotorCurrentSample, 3, 20),
+    Topic.MOTOR_FAULTS: (MotorFaultSample, 3, 100),
 }
 
 
@@ -659,6 +820,24 @@ class KinisiCommands:
         if not math.isfinite(amps) or amps < 0:
             raise ValueError('Invalid motor current payload')
         return amps
+
+    def get_motor_faults(self, motor_index: int) -> MotorFaultStatus:
+        """Read motor-driver fault status without waking, initializing, enabling or clearing
+        the driver. Detailed flags are meaningful only when status_valid is true. An
+        unavailable SPI response cannot distinguish missing motor power from a communication
+        or driver failure. Flags may retain latched faults until explicit motor
+        reinitialization.
+
+        motor_index: Motor connector index.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED,
+        SENSOR_NOT_AVAILABLE.
+        """
+        if type(motor_index) is not int or not 0 <= motor_index <= 3:
+            raise ValueError('motor_index must be an integer from 0 to 3')
+        payload = struct.pack('<B', motor_index)
+        result = self._request(GET_MOTOR_FAULTS, payload, MotorFaultStatus.get_size())
+        return MotorFaultStatus.decode(result)
 
     def initialize_motor(self, motor_index: int, is_reversed: bool) -> None:
         """This command initializes a motor and prepares it for use. Rejected with MOTOR_OWNED
@@ -1511,4 +1690,117 @@ class KinisiCommands:
         validate_topic(topic_id, index)
         payload = struct.pack('<BB', topic_id, index)
         result = self._request(UNSUBSCRIBE, payload, 0)
+
+    def subscribe_with_mode(self, topic_id: int, index: int, interval_ms: int, mode: int) -> None:
+        """Create or replace this connection's subscription with a delivery mode. Requires
+        READY and enabled heartbeat. The interval sets the sampling cadence and must meet
+        the topic minimum; odometry also requires twice the calculation period. ON_CHANGE
+        sends an initial snapshot and changed values, excluding timestamp and clock
+        metadata. Failed reads pause delivery; recovery sends a fresh snapshot.
+
+        topic_id: Generated telemetry topic enum.
+        index: Resource index; platform uses 0. Hardware availability is checked by
+        firmware.
+        interval_ms: Sampling interval in milliseconds; scheduling is best effort.
+        mode: Subscription delivery mode.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        ODOMETRY_NOT_INITIALIZED, SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, SUBSCRIPTION_LIMIT,
+        SAMPLE_OUT_OF_RANGE.
+        """
+        validate_topic(topic_id, index)
+        if type(interval_ms) is not int or not TOPIC_DEFINITIONS[topic_id][2] <= interval_ms <= 3600000:
+            raise ValueError('Invalid subscription interval')
+        if isinstance(mode, bool) or not isinstance(mode, int) or mode not in tuple(SubscriptionMode):
+            raise ValueError('Invalid subscription mode')
+        payload = struct.pack('<BBIB', topic_id, index, interval_ms, mode)
+        result = self._request(SUBSCRIBE_WITH_MODE, payload, 0)
+
+    def clear_motor_faults(self, motor_index: int) -> MotorFaultStatus:
+        """Stop the initialized motor and its controller, clear latched driver faults, and
+        return fresh diagnostics. Requires a ready connection. The motor remains stopped.
+        Active conditions can remain reported. Platform-owned motors are rejected. Driver
+        configuration is preserved; sleeping drivers are not woken. A failed clear or
+        unreadable verification returns an error.
+
+        motor_index: Motor connector index.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED,
+        SENSOR_NOT_AVAILABLE, MOTOR_OWNED, MOTOR_NOT_INITIALIZED, INTERNAL_ERROR,
+        CLOCK_NOT_READY.
+        """
+        if type(motor_index) is not int or not 0 <= motor_index <= 3:
+            raise ValueError('motor_index must be an integer from 0 to 3')
+        payload = struct.pack('<B', motor_index)
+        result = self._request(CLEAR_MOTOR_FAULTS, payload, MotorFaultStatus.get_size())
+        return MotorFaultStatus.decode(result)
+
+    def get_motor_current_limit(self, motor_index: int) -> MotorCurrentLimit:
+        """Read the applied hardware current-regulation setting in milliamps. Requires a ready
+        connection and an initialized, awake motor driver. Does not change motor state.
+
+        motor_index: Motor connector index.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        MOTOR_NOT_INITIALIZED, SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
+        """
+        if type(motor_index) is not int or not 0 <= motor_index <= 3:
+            raise ValueError('motor_index must be an integer from 0 to 3')
+        payload = struct.pack('<B', motor_index)
+        result = self._request(GET_MOTOR_CURRENT_LIMIT, payload, MotorCurrentLimit.get_size())
+        return MotorCurrentLimit.decode(result)
+
+    def set_motor_current_limit(self, motor_index: int, enabled: bool, threshold_ma: int) -> MotorCurrentLimit:
+        """Stop the motor and its controller, apply and verify hardware current regulation, and
+        return the applied setting. Requires a ready connection and an initialized, awake
+        driver. Only board-supported thresholds are accepted. Platform-owned motors are
+        rejected. The motor stays stopped. Settings are volatile; motor reinitialization
+        applies board defaults. Driver power loss requires reinitialization. Overcurrent
+        protection is unchanged.
+
+        motor_index: Motor connector index.
+        enabled: Enable current regulation on both motor outputs.
+        threshold_ma: Nominal regulation threshold in milliamps, selected from the board
+        profile.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        MOTOR_NOT_INITIALIZED, SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, MOTOR_OWNED.
+        """
+        if type(motor_index) is not int or not 0 <= motor_index <= 3:
+            raise ValueError('motor_index must be an integer from 0 to 3')
+        if type(enabled) is not bool or type(threshold_ma) is not int or not 1 <= threshold_ma <= 65535:
+            raise ValueError('Expected enabled boolean and threshold_ma integer from 1 to 65535')
+        payload = struct.pack('<B?H', motor_index, enabled, threshold_ma)
+        result = self._request(SET_MOTOR_CURRENT_LIMIT, payload, MotorCurrentLimit.get_size())
+        return MotorCurrentLimit.decode(result)
+
+    def subscribe_configured(self, topic_id: int, index: int, poll_interval_ms: int, trigger: int, delivery: int, max_silence_ms: int) -> None:
+        """Create or replace a subscription with independent trigger and delivery settings.
+        Send an initial snapshot. PERIODIC uses poll_interval_ms; ON_EVENT requires zero
+        polling interval and an event-capable source. ON_CHANGE suppresses unchanged values,
+        excluding timestamp and clock metadata; max_silence_ms requests fresh refreshes, or
+        zero disables refreshes. Delivery is best effort and requires READY and heartbeat.
+
+        topic_id: Telemetry topic.
+        index: Resource index.
+        poll_interval_ms: Polling interval; zero for ON_EVENT.
+        trigger: Update trigger.
+        delivery: Delivery filter.
+        max_silence_ms: Fresh-sample refresh interval for ON_CHANGE; zero disables
+        refreshes. Must meet the topic minimum.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        ODOMETRY_NOT_INITIALIZED, SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, SUBSCRIPTION_LIMIT,
+        SAMPLE_OUT_OF_RANGE.
+        """
+        validate_topic(topic_id, index)
+        if isinstance(trigger, bool) or not isinstance(trigger, int) or trigger not in tuple(SubscriptionTrigger) or isinstance(delivery, bool) or not isinstance(delivery, int) or delivery not in tuple(SubscriptionDelivery):
+            raise ValueError('Invalid subscription settings')
+        minimum = TOPIC_DEFINITIONS[topic_id][2]
+        if type(poll_interval_ms) is not int or poll_interval_ms > 3600000 or (trigger == SubscriptionTrigger.ON_EVENT and (poll_interval_ms != 0 or topic_id not in EVENT_TOPICS)) or (trigger == SubscriptionTrigger.PERIODIC and poll_interval_ms < minimum):
+            raise ValueError('Invalid polling interval or trigger')
+        if type(max_silence_ms) is not int or not 0 <= max_silence_ms <= 3600000 or (max_silence_ms != 0 and (delivery != SubscriptionDelivery.ON_CHANGE or max_silence_ms < minimum)):
+            raise ValueError('Invalid maximum silence')
+        payload = struct.pack('<BBIBBI', topic_id, index, poll_interval_ms, trigger, delivery, max_silence_ms)
+        result = self._request(SUBSCRIBE_CONFIGURED, payload, 0)
 

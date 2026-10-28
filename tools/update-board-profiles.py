@@ -45,9 +45,20 @@ def validate(bundle):
         features = profile['motor_features']
         require(isinstance(features, list) and len(features) == resources['motors'], 'Motor feature count mismatch')
         for index, feature in enumerate(features):
-            fields(feature, ('id', 'current_sense', 'current_limit'), 'motor features')
+            keys = ('id', 'current_sense', 'current_limit', 'fault_reporting')
+            fields(feature, keys + (('current_limit_options',) if 'current_limit_options' in feature else ()), 'motor features')
+            if 'current_limit_options' in feature:
+                require(feature['current_limit'] is True, 'Options require current-limit hardware')
+                options = feature['current_limit_options']
+                fields(options, ('type', 'supported_thresholds_ma', 'can_disable'), 'current-limit options')
+                require(options['type'] == 'discrete', 'Unsupported current-limit option type')
+                require(type(options['can_disable']) is bool, 'Invalid can_disable flag')
+                values = options['supported_thresholds_ma']
+                require(isinstance(values, list) and 1 <= len(values) <= 255 and
+                        all(integer(v, 1, 65535) for v in values) and values == sorted(set(values)),
+                        'Invalid supported current-limit thresholds')
             require(type(feature['id']) is int and feature['id'] == index, 'Invalid motor ID')
-            require(type(feature['current_sense']) is bool and type(feature['current_limit']) is bool, 'Invalid motor features')
+            require(type(feature['current_sense']) is bool and type(feature['current_limit']) is bool and type(feature['fault_reporting']) is bool, 'Invalid motor features')
         fields(profile['sensors'], ('temperature', 'imu'), 'sensors')
         for kind, sensors in profile['sensors'].items():
             require(isinstance(sensors, list) and len(sensors) <= 255, 'Invalid sensor list')

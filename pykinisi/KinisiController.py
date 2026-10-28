@@ -18,10 +18,10 @@ from .KinisiCommands import (
     GET_ENCODER_ODOMETRY, START_PLATFORM_ODOMETRY, GET_PLATFORM_ODOMETRY,
     PING, SET_HEARTBEAT_CONFIG, SUBSCRIBE_ODOMETRY, UNSUBSCRIBE_ODOMETRY,
     ENCODER_ODOMETRY_EVENT, PLATFORM_ODOMETRY_EVENT,
-    EncoderOdometrySample, PlatformOdometrySample, GET_TEMPERATURE, GET_IMU, GET_MOTOR_CURRENT,
-    SUBSCRIBE, UNSUBSCRIBE, TELEMETRY_EVENT, Topic, validate_topic, decode_telemetry_event,
+    EncoderOdometrySample, PlatformOdometrySample, GET_TEMPERATURE, GET_IMU, GET_MOTOR_CURRENT, GET_MOTOR_FAULTS, CLEAR_MOTOR_FAULTS, GET_MOTOR_CURRENT_LIMIT, SET_MOTOR_CURRENT_LIMIT,
+    SUBSCRIBE, SUBSCRIBE_WITH_MODE, SUBSCRIBE_CONFIGURED, UNSUBSCRIBE, TELEMETRY_EVENT, Topic, SubscriptionMode, SubscriptionTrigger, SubscriptionDelivery, validate_topic, decode_telemetry_event,
 )
-from .board_profile import get_board_profile, supports_board_sensor, supports_motor_current
+from .board_profile import get_board_profile, supports_board_sensor, supports_motor_current, supports_motor_faults, get_motor_current_limit_options, supports_motor_current_limit
 from ._version import VERSION
 from .KinisiCommands import (
     INITIALIZE_MOTOR_POSITION_CONTROLLER, RESET_MOTOR_POSITION, SET_MOTOR_POSITION,
@@ -31,6 +31,8 @@ from .KinisiCommands import (
 )
 
 from .errors import ConnectionClosedError, ControllerError, KinisiError, ProtocolError, RequestTimeoutError
+
+_UNSET = object()
 
 MIN_PROTOCOL_VERSION = (2, 1, 0)
 POSITION_COMMANDS = frozenset((INITIALIZE_MOTOR_POSITION_CONTROLLER, RESET_MOTOR_POSITION,
@@ -178,6 +180,16 @@ class KinisiController(KinisiCommands):
         with self._lock:
             return self.serial is not None and self._ready
 
+    def get_motor_current_limit_options(self, index=0):
+        """Read the selected motor's supported thresholds and disable capability."""
+        with self._lock:
+            return get_motor_current_limit_options(self.board_info, index)
+
+    def supports_motor_current_limit(self, index=0):
+        """Check hardware and protocol support for current-limit configuration."""
+        with self._lock:
+            return supports_motor_current_limit(self.board_info, index)
+
     @property
     def board_profile(self):
         """Bundled hardware profile selected from INIT, or None for an unknown board."""
@@ -194,6 +206,11 @@ class KinisiController(KinisiCommands):
         with self._lock:
             return supports_motor_current(self.board_info, index)
 
+    def supports_motor_faults(self, index=0):
+        """Check hardware presence and firmware support without performing I/O."""
+        with self._lock:
+            return supports_motor_faults(self.board_info, index)
+
     def supports_topic(self, topic, index=0):
         """Check protocol and known hardware; running odometry is checked by firmware."""
         try:
@@ -208,19 +225,33 @@ class KinisiController(KinisiCommands):
                 return index < profile['resources']['encoders']
             if topic == Topic.PLATFORM_ODOMETRY:
                 return True
+            if topic == Topic.MOTOR_FAULTS:
+                return self.supports_motor_faults(index)
             if topic == Topic.MOTOR_CURRENT:
                 return self.supports_motor_current(index)
             if topic in (Topic.TEMPERATURE, Topic.IMU):
                 return self.supports_sensor('temperature' if topic == Topic.TEMPERATURE else 'imu', index)
             return False
 
-    def subscribe(self, topic, callback, *, index=0, interval_ms):
+    def subscribe(self, topic, callback, *, index=0, interval_ms=None, mode=_UNSET,
+                  trigger=None, delivery=None, poll_interval_ms=None, max_silence_ms=None):
         """Subscribe to typed samples and return an ownership handle.
 
         Callbacks run on a worker, separately from serial reads and heartbeat.
         Slow callbacks receive the latest sample; intermediate samples are coalesced.
         """
+        configured = any(v is not None for v in (trigger, delivery, poll_interval_ms, max_silence_ms))
+        if configured and (mode is not _UNSET or interval_ms is not None):
+            raise ValueError('Use poll_interval_ms with trigger/delivery settings')
+        mode = SubscriptionMode.PERIODIC if mode is _UNSET else mode
+        trigger = SubscriptionTrigger.PERIODIC if trigger is None else trigger
+        delivery = SubscriptionDelivery.ALL if delivery is None else delivery
+        max_silence_ms = 0 if max_silence_ms is None else max_silence_ms
+        if trigger == SubscriptionTrigger.ON_EVENT and poll_interval_ms is None:
+            poll_interval_ms = 0
         validate_topic(topic, index)
+        if isinstance(mode, bool) or not isinstance(mode, int) or mode not in tuple(SubscriptionMode):
+            raise ValueError('Invalid subscription mode')
         if not callable(callback):
             raise TypeError('callback must be callable')
         key = (topic, index)
@@ -230,7 +261,12 @@ class KinisiController(KinisiCommands):
                 self._telemetry_candidates[key] = entry
             try:
                 with self._subscription_session(entry.session):
-                    super().subscribe(topic, index, interval_ms)
+                    if configured:
+                        super().subscribe_configured(topic, index, poll_interval_ms, trigger, delivery, max_silence_ms)
+                    elif mode == SubscriptionMode.PERIODIC:
+                        super().subscribe(topic, index, interval_ms)
+                    else:
+                        super().subscribe_with_mode(topic, index, interval_ms, mode)
             except RequestTimeoutError:
                 # A lost ACK may hide a successful subscription. Cancel it; if that
                 # cannot be confirmed, terminate the session and its watchdog.
@@ -363,17 +399,41 @@ class KinisiController(KinisiCommands):
             transport = self.serial
             if transport is None:
                 raise ConnectionClosedError("Connect before sending commands")
-            if command in (SUBSCRIBE, UNSUBSCRIBE):
+            if command in (SUBSCRIBE, SUBSCRIBE_WITH_MODE, SUBSCRIBE_CONFIGURED, UNSUBSCRIBE):
                 expected_session = getattr(self._telemetry_context, 'session', None)
                 if expected_session is not None and expected_session != self._session:
                     raise ConnectionClosedError('Subscription connection changed before transmission')
                 if (not self._ready or self.board_info is None or
                         self.board_info.protocol_major != 2 or self.board_info.protocol_minor < 6):
                     raise ProtocolError('Subscriptions require a ready protocol 2.6+ controller')
+                if command == SUBSCRIBE_CONFIGURED and self.board_info.protocol_minor < 12:
+                    raise ProtocolError('Subscription settings require firmware protocol 2.12 or newer')
+                if command == SUBSCRIBE_WITH_MODE and self.board_info.protocol_minor < 9:
+                    raise ProtocolError('Subscription modes require firmware protocol 2.9 or newer')
+                if payload[0] == Topic.MOTOR_FAULTS and self.board_info.protocol_minor < 8:
+                    raise ProtocolError('Motor faults require firmware protocol 2.8 or newer')
                 if payload[0] == Topic.MOTOR_CURRENT and self.board_info.protocol_minor < 7:
                     raise ProtocolError('Motor current requires a ready protocol 2.7+ controller')
-                if command == SUBSCRIBE and self.board_profile is not None and not self.supports_topic(payload[0], payload[1]):
+                if command in (SUBSCRIBE, SUBSCRIBE_WITH_MODE, SUBSCRIBE_CONFIGURED) and self.board_profile is not None and not self.supports_topic(payload[0], payload[1]):
                     raise ProtocolError('This board does not support the selected telemetry source')
+            if command in (GET_MOTOR_CURRENT_LIMIT, SET_MOTOR_CURRENT_LIMIT):
+                if (self.board_info is None or self.board_info.protocol_major != 2 or self.board_info.protocol_minor < 11):
+                    raise ProtocolError('Current-limit setup requires firmware protocol 2.11 or newer')
+                options = self.get_motor_current_limit_options(payload[0])
+                if self.board_profile is not None and options is None:
+                    raise ProtocolError('This motor has no configurable current limit')
+                if command == SET_MOTOR_CURRENT_LIMIT and options is not None:
+                    threshold = int.from_bytes(payload[2:4], 'little')
+                    if threshold not in options['supported_thresholds_ma'] or (not payload[1] and not options['can_disable']):
+                        raise ValueError('Current-limit setting is not allowed by this board')
+            if command == CLEAR_MOTOR_FAULTS and (self.board_info is None or self.board_info.protocol_minor < 10):
+                raise ProtocolError('Clearing motor faults requires firmware protocol 2.10 or newer')
+            if command in (GET_MOTOR_FAULTS, CLEAR_MOTOR_FAULTS):
+                if (not self._ready or self.board_info is None or
+                        self.board_info.protocol_major != 2 or self.board_info.protocol_minor < 8):
+                    raise ProtocolError('Motor faults require a ready protocol 2.8+ controller')
+                if self.board_profile is not None and not self.supports_motor_faults(payload[0]):
+                    raise ProtocolError('This motor has no fault reporting')
             if command == GET_MOTOR_CURRENT:
                 if (not self._ready or self.board_info is None or
                         self.board_info.protocol_major != 2 or self.board_info.protocol_minor < 7):
@@ -622,12 +682,12 @@ class KinisiController(KinisiCommands):
                 if not enabled:
                     self._subscription_samples.clear()
                     self._clear_telemetry()
-            elif command in (SUBSCRIBE, UNSUBSCRIBE):
+            elif command in (SUBSCRIBE, SUBSCRIBE_WITH_MODE, SUBSCRIBE_CONFIGURED, UNSUBSCRIBE):
                 key = tuple(pending.request_payload[:2])
                 old = self._telemetry.pop(key, None)
                 if old is not None:
                     old.closing = True
-                if command == SUBSCRIBE:
+                if command in (SUBSCRIBE, SUBSCRIBE_WITH_MODE, SUBSCRIBE_CONFIGURED):
                     entry = self._telemetry_candidates.get(key)
                     if entry is None or entry.session != self._session or entry.closing:
                         raise ProtocolError('Subscription acknowledged after session invalidation; reconnect')

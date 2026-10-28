@@ -82,10 +82,13 @@ def schema_fixture():
     }
     bundled = json.loads((ROOT / 'tools/commands.json').read_text(encoding='utf-8'))
     fixture['topics'] = bundled['topics']
-    payloads = {topic['payload_type'] for topic in bundled['topics']}
+    fixture['subscription_modes'] = bundled['subscription_modes']
+    fixture['subscription_triggers'] = bundled['subscription_triggers']
+    fixture['subscription_deliveries'] = bundled['subscription_deliveries']
+    payloads = {topic['payload_type'] for topic in bundled['topics']} | {'motor_fault_status', 'motor_current_limit'}
     fixture['objects'].extend(obj for obj in bundled['objects'] if obj['name'] in payloads)
     fixture['commands'].extend({k: v for k, v in cmd.items() if k != 'errors'}
-                               for cmd in bundled['commands'] if cmd['command'] in ('SUBSCRIBE', 'UNSUBSCRIBE', 'TELEMETRY_EVENT', 'GET_MOTOR_CURRENT'))
+                               for cmd in bundled['commands'] if cmd['command'] in ('SUBSCRIBE', 'SUBSCRIBE_WITH_MODE', 'SUBSCRIBE_CONFIGURED', 'UNSUBSCRIBE', 'TELEMETRY_EVENT', 'GET_MOTOR_CURRENT', 'GET_MOTOR_FAULTS', 'CLEAR_MOTOR_FAULTS', 'GET_MOTOR_CURRENT_LIMIT', 'SET_MOTOR_CURRENT_LIMIT'))
     return fixture
 
 
@@ -280,6 +283,10 @@ class CheckedInSchemaTests(unittest.TestCase):
     def test_topic_metadata_and_retirement_are_validated(self):
         schema = json.loads((ROOT / 'tools/commands.json').read_text(encoding='utf-8'))
         for mutate in (
+                lambda s: s['subscription_modes'][1].update(id=2),
+                lambda s: s['subscription_modes'][1].update(id=True),
+                lambda s: s['subscription_modes'][1].update(name='UNKNOWN'),
+                lambda s: next(c for c in s['commands'] if c['command'] == 'SUBSCRIBE_WITH_MODE')['properties'].pop(),
                 lambda s: s['topics'][0].update(id=0),
                 lambda s: s['topics'][1].update(id=s['topics'][0]['id']),
                 lambda s: s['topics'][0].update(payload_type='absent'),
@@ -370,11 +377,17 @@ class UpdaterTests(unittest.TestCase):
             root = Path(directory)
             schema_path, output, snapshot = root / "input.json", root / "commands.py", root / "bundled.json"
             for version, missing in (("2.5.0", {"GET_TEMPERATURE"}), ("2.4.0", {"GET_IMU"}),
-                                     ("2.3.1", {"GET_TEMPERATURE", "GET_IMU"}), ("2.6.0", {"GET_MOTOR_CURRENT"})):
+                                     ("2.3.1", {"GET_TEMPERATURE", "GET_IMU"}), ("2.6.0", {"GET_MOTOR_CURRENT"}),
+                                     ("2.11.0", {"SUBSCRIBE_CONFIGURED"}),
+                                     ("2.10.0", {"GET_MOTOR_CURRENT_LIMIT"}),
+                                     ("2.10.0", {"SET_MOTOR_CURRENT_LIMIT"})):
                 with self.subTest(version=version, missing=missing):
                     schema = schema_fixture()
                     schema["version"] = version
                     schema["commands"] = [c for c in schema["commands"] if c["command"] not in missing]
+                    if "SUBSCRIBE_CONFIGURED" in missing:
+                        schema.pop("subscription_triggers", None)
+                        schema.pop("subscription_deliveries", None)
                     schema_path.write_text(json.dumps(schema), encoding="utf-8")
                     for path in (output, snapshot):
                         path.write_bytes(b"preserved\n")

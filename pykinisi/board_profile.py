@@ -62,3 +62,27 @@ def supports_motor_current(info, index=0):
     return (type(index) is int and type(major) is int and major == 2 and
             type(minor) is int and 7 <= minor <= 255 and profile is not None and
             any(motor['id'] == index and motor['current_sense'] for motor in profile['motor_features']))
+
+
+def supports_motor_faults(info, index=0):
+    """Require both motor-driver fault reporting and protocol support."""
+    profile = get_board_profile(info)
+    major, minor = _field(info, 'protocol_major'), _field(info, 'protocol_minor')
+    return (type(index) is int and type(major) is int and major == 2 and
+            type(minor) is int and 8 <= minor <= 255 and profile is not None and
+            any(motor['id'] == index and motor['fault_reporting'] for motor in profile['motor_features']))
+
+
+def get_motor_current_limit_options(info, index=0):
+    """Immutable hardware options, independent of firmware support; None if unknown/absent."""
+    profile = get_board_profile(info)
+    if type(index) is not int or index < 0 or profile is None:
+        return None
+    return next((m.get('current_limit_options') for m in profile['motor_features'] if m['id'] == index), None)
+
+
+def supports_motor_current_limit(info, index=0):
+    """Require fitted current-limit hardware and firmware configuration commands."""
+    major, minor = _field(info, 'protocol_major'), _field(info, 'protocol_minor')
+    return (type(major) is int and major == 2 and type(minor) is int and 11 <= minor <= 255 and
+            get_motor_current_limit_options(info, index) is not None)

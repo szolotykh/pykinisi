@@ -18,7 +18,8 @@ import time
 import unittest
 from unittest import mock
 
-from pykinisi import KinisiController, Topic
+from pykinisi import KinisiController, Topic, SubscriptionMode, SubscriptionTrigger, SubscriptionDelivery, TELEMETRY_EVENT
+from test_controller import wait_until
 from pykinisi.KinisiCommands import (
     ErrorCode, GET_PLATFORM_ODOMETRY, INIT, READY, TIME_SYNC_REQUEST, TIME_SYNC_RESPONSE, PROTOCOL_VERSION,
 )
@@ -112,6 +113,10 @@ class FirmwareSerial:
         with self._lock:
             return self.library.fixture_sent_count(command)
 
+    def set_faults(self, overcurrent, valid=True):
+        with self._lock:
+            self.library.fixture_set_faults(overcurrent, valid)
+
     def written_count(self, command):
         """Count host frames after their writes and C command-task turns complete."""
         with self._lock:
@@ -148,6 +153,7 @@ class FirmwareIntegrationTests(unittest.TestCase):
             raise AssertionError(f"Firmware fixture build failed:\n{build.stdout}\n{build.stderr}")
         cls.library = ctypes.CDLL(str(binary))
         signatures = {
+            "fixture_set_faults": ([ctypes.c_uint8, ctypes.c_uint8], None),
             "fixture_reset": ([ctypes.c_uint64], None),
             "fixture_feed": ([ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t], ctypes.c_int),
             "fixture_poll": ([ctypes.c_uint64], None),
@@ -179,6 +185,16 @@ class FirmwareIntegrationTests(unittest.TestCase):
         self.addCleanup(client.disconnect)
         self.assertTrue(client.connect("firmware-fixture"), repr(client.last_error))
         return client, serial
+
+    def test_current_limit_commands_with_production_session(self):
+        client, _ = self.connect_client(wall_clock=False)
+        for index in range(4):
+            self.assertEqual(client.get_motor_current_limit(index).threshold_ma, 6500)
+            for threshold in (4000, 5400, 6500, 7000):
+                for enabled in (False, True):
+                    setting = client.set_motor_current_limit(index, enabled, threshold)
+                    self.assertEqual(vars(setting), dict(enabled=enabled, threshold_ma=threshold))
+                    self.assertEqual(vars(client.get_motor_current_limit(index)), vars(setting))
 
     def test_initial_sync_ack_error_and_periodic_refresh(self):
         """INIT/READY and periodic synchronization interoperate with production C."""
@@ -238,6 +254,70 @@ class FirmwareIntegrationTests(unittest.TestCase):
         self.assertEqual(samples[-1].clock_quality, 1)
         handle.unsubscribe()
         self.assertFalse(handle.active)
+
+    def test_event_trigger_and_silence_refresh_with_production_firmware(self):
+        client, serial = self.connect_client(wall_clock=False)
+        client.set_heartbeat_config(True, 1000)
+        samples = []
+        handle = client.subscribe(Topic.MOTOR_FAULTS, samples.append,
+            trigger=SubscriptionTrigger.ON_EVENT, delivery=SubscriptionDelivery.ON_CHANGE, max_silence_ms=500)
+        wait_until(lambda: len(samples) == 1)
+        serial.set_faults(True)
+        wait_until(lambda: len(samples) == 2)
+        self.assertTrue(samples[-1].overcurrent)
+        self.assertLess(samples[-1].timestamp_us - samples[0].timestamp_us, 100000)
+        serial.advance(510000)
+        wait_until(lambda: len(samples) >= 3)
+        self.assertTrue(samples[-1].overcurrent)
+        self.assertGreater(samples[-1].timestamp_us, samples[-2].timestamp_us)
+        handle.unsubscribe()
+
+    def test_on_change_faults_with_production_firmware(self):
+        client, serial = self.connect_client(wall_clock=False)
+        client.set_heartbeat_config(True, 1000)
+        samples = []
+        handle = client.subscribe(Topic.MOTOR_FAULTS, samples.append, interval_ms=100, mode=SubscriptionMode.ON_CHANGE)
+        wait_until(lambda: len(samples) == 1)
+        self.assertTrue(samples[0].status_valid)
+        self.assertFalse(samples[0].overcurrent)
+        baseline = serial.sent_count(TELEMETRY_EVENT)
+        for _ in range(3): serial.advance(100000)
+        self.assertEqual(serial.sent_count(TELEMETRY_EVENT), baseline)
+        serial.set_faults(True)
+        serial.advance(100000)
+        wait_until(lambda: len(samples) == 2)
+        self.assertTrue(samples[-1].overcurrent)
+        serial.set_faults(False, False)
+        serial.advance(100000)
+        wait_until(lambda: len(samples) == 3)
+        self.assertFalse(samples[-1].status_valid)
+        serial.set_faults(False, True)
+        serial.advance(100000)
+        wait_until(lambda: len(samples) == 4)
+        self.assertTrue(samples[-1].status_valid)
+        self.assertFalse(samples[-1].overcurrent)
+        handle.unsubscribe()
+        baseline = serial.sent_count(TELEMETRY_EVENT)
+        serial.set_faults(True)
+        serial.advance(100000)
+        self.assertEqual(serial.sent_count(TELEMETRY_EVENT), baseline)
+
+    def test_fault_clear_response_and_change_event_with_production_session(self):
+        client, serial = self.connect_client(wall_clock=False)
+        client.set_heartbeat_config(True, 1000)
+        serial.set_faults(True)
+        samples = []
+        handle = client.subscribe(Topic.MOTOR_FAULTS, samples.append, interval_ms=100, mode=SubscriptionMode.ON_CHANGE)
+        wait_until(lambda: len(samples) == 1)
+        self.assertTrue(samples[-1].overcurrent)
+        response = client.clear_motor_faults(0)
+        self.assertTrue(response.status_valid)
+        self.assertFalse(response.overcurrent)
+        serial.advance(100000)
+        wait_until(lambda: len(samples) == 2)
+        self.assertTrue(samples[-1].status_valid)
+        self.assertFalse(samples[-1].overcurrent)
+        handle.unsubscribe()
 
     def test_current_pull_and_four_streams_with_production_firmware(self):
         client, serial = self.connect_client(wall_clock=False)

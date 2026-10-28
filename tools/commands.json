@@ -1,5 +1,5 @@
 {
-  "version": "2.7.0",
+  "version": "2.12.0",
   "commands": [
     {
       "command": "GET_TEMPERATURE",
@@ -87,6 +87,36 @@
         "type": "double",
         "direction": "controller_to_client",
         "description": "Nonnegative current estimate in amperes, encoded as a little-endian IEEE 754 64-bit double."
+      }
+    },
+    {
+      "command": "GET_MOTOR_FAULTS",
+      "code": "0x53",
+      "direction": "client_to_controller",
+      "description": "Read motor-driver fault status without waking, initializing, enabling or clearing the driver. Detailed flags are meaningful only when status_valid is true. An unavailable SPI response cannot distinguish missing motor power from a communication or driver failure. Flags may retain latched faults until explicit motor reinitialization.",
+      "properties": [
+        {
+          "name": "motor_index",
+          "type": "uint8_t",
+          "range": [
+            0,
+            3
+          ],
+          "description": "Motor connector index."
+        }
+      ],
+      "category": "Motor",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "SENSOR_NOT_AVAILABLE"
+      ],
+      "response": {
+        "name": "motor_fault_status",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Driver state and diagnostic flags, encoded as ten one-byte booleans."
       }
     },
     {
@@ -2081,6 +2111,228 @@
         "discriminator": "topic_id"
       },
       "errors": []
+    },
+    {
+      "command": "SUBSCRIBE_WITH_MODE",
+      "code": "0x83",
+      "direction": "client_to_controller",
+      "category": "Telemetry",
+      "description": "Create or replace this connection's subscription with a delivery mode. Requires READY and enabled heartbeat. The interval sets the sampling cadence and must meet the topic minimum; odometry also requires twice the calculation period. ON_CHANGE sends an initial snapshot and changed values, excluding timestamp and clock metadata. Failed reads pause delivery; recovery sends a fresh snapshot.",
+      "properties": [
+        {
+          "name": "topic_id",
+          "type": "uint8_t",
+          "enum": "telemetry_topic",
+          "description": "Generated telemetry topic enum."
+        },
+        {
+          "name": "index",
+          "type": "uint8_t",
+          "description": "Resource index; platform uses 0. Hardware availability is checked by firmware."
+        },
+        {
+          "name": "interval_ms",
+          "type": "uint32_t",
+          "range": [
+            2,
+            3600000
+          ],
+          "description": "Sampling interval in milliseconds; scheduling is best effort."
+        },
+        {
+          "name": "mode",
+          "type": "uint8_t",
+          "enum": "subscription_mode",
+          "description": "Subscription delivery mode."
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "ODOMETRY_NOT_INITIALIZED",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR",
+        "SUBSCRIPTION_LIMIT",
+        "SAMPLE_OUT_OF_RANGE"
+      ]
+    },
+    {
+      "command": "CLEAR_MOTOR_FAULTS",
+      "code": "0x54",
+      "direction": "client_to_controller",
+      "description": "Stop the initialized motor and its controller, clear latched driver faults, and return fresh diagnostics. Requires a ready connection. The motor remains stopped. Active conditions can remain reported. Platform-owned motors are rejected. Driver configuration is preserved; sleeping drivers are not woken. A failed clear or unreadable verification returns an error.",
+      "properties": [
+        {
+          "name": "motor_index",
+          "type": "uint8_t",
+          "range": [
+            0,
+            3
+          ],
+          "description": "Motor connector index."
+        }
+      ],
+      "category": "Motor",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "SENSOR_NOT_AVAILABLE",
+        "MOTOR_OWNED",
+        "MOTOR_NOT_INITIALIZED",
+        "INTERNAL_ERROR",
+        "CLOCK_NOT_READY"
+      ],
+      "response": {
+        "name": "motor_fault_status",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Driver state and diagnostic flags, encoded as ten one-byte booleans."
+      }
+    },
+    {
+      "command": "GET_MOTOR_CURRENT_LIMIT",
+      "code": "0x55",
+      "direction": "client_to_controller",
+      "description": "Read the applied hardware current-regulation setting in milliamps. Requires a ready connection and an initialized, awake motor driver. Does not change motor state.",
+      "properties": [
+        {
+          "name": "motor_index",
+          "type": "uint8_t",
+          "range": [
+            0,
+            3
+          ],
+          "description": "Motor connector index."
+        }
+      ],
+      "category": "Motor",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "MOTOR_NOT_INITIALIZED",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR"
+      ],
+      "response": {
+        "name": "motor_current_limit",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Applied current-regulation setting."
+      }
+    },
+    {
+      "command": "SET_MOTOR_CURRENT_LIMIT",
+      "code": "0x56",
+      "direction": "client_to_controller",
+      "description": "Stop the motor and its controller, apply and verify hardware current regulation, and return the applied setting. Requires a ready connection and an initialized, awake driver. Only board-supported thresholds are accepted. Platform-owned motors are rejected. The motor stays stopped. Settings are volatile; motor reinitialization applies board defaults. Driver power loss requires reinitialization. Overcurrent protection is unchanged.",
+      "properties": [
+        {
+          "name": "motor_index",
+          "type": "uint8_t",
+          "range": [
+            0,
+            3
+          ],
+          "description": "Motor connector index."
+        },
+        {
+          "name": "enabled",
+          "type": "bool",
+          "description": "Enable current regulation on both motor outputs."
+        },
+        {
+          "name": "threshold_ma",
+          "type": "uint16_t",
+          "range": [
+            1,
+            65535
+          ],
+          "description": "Nominal regulation threshold in milliamps, selected from the board profile."
+        }
+      ],
+      "category": "Motor",
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "MOTOR_NOT_INITIALIZED",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR",
+        "MOTOR_OWNED"
+      ],
+      "response": {
+        "name": "motor_current_limit",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Applied current-regulation setting."
+      }
+    },
+    {
+      "command": "SUBSCRIBE_CONFIGURED",
+      "code": "0x84",
+      "direction": "client_to_controller",
+      "category": "Telemetry",
+      "description": "Create or replace a subscription with independent trigger and delivery settings. Send an initial snapshot. PERIODIC uses poll_interval_ms; ON_EVENT requires zero polling interval and an event-capable source. ON_CHANGE suppresses unchanged values, excluding timestamp and clock metadata; max_silence_ms requests fresh refreshes, or zero disables refreshes. Delivery is best effort and requires READY and heartbeat.",
+      "properties": [
+        {
+          "name": "topic_id",
+          "type": "uint8_t",
+          "enum": "telemetry_topic",
+          "description": "Telemetry topic."
+        },
+        {
+          "name": "index",
+          "type": "uint8_t",
+          "description": "Resource index."
+        },
+        {
+          "name": "poll_interval_ms",
+          "type": "uint32_t",
+          "range": [
+            0,
+            3600000
+          ],
+          "description": "Polling interval; zero for ON_EVENT."
+        },
+        {
+          "name": "trigger",
+          "type": "uint8_t",
+          "enum": "subscription_trigger",
+          "description": "Update trigger."
+        },
+        {
+          "name": "delivery",
+          "type": "uint8_t",
+          "enum": "subscription_delivery",
+          "description": "Delivery filter."
+        },
+        {
+          "name": "max_silence_ms",
+          "type": "uint32_t",
+          "range": [
+            0,
+            3600000
+          ],
+          "description": "Fresh-sample refresh interval for ON_CHANGE; zero disables refreshes. Must meet the topic minimum."
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "ODOMETRY_NOT_INITIALIZED",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR",
+        "SUBSCRIPTION_LIMIT",
+        "SAMPLE_OUT_OF_RANGE"
+      ]
     }
   ],
   "objects": [
@@ -2469,6 +2721,149 @@
           "description": "Nonnegative filtered high-side current estimate in amperes."
         }
       ]
+    },
+    {
+      "name": "motor_fault_status",
+      "description": "Motor-driver diagnostic status. Ignore detailed flags when status_valid is false; a clear fault input alone does not establish driver health.",
+      "properties": [
+        {
+          "name": "sleep_requested",
+          "type": "bool",
+          "description": "The sleep control is asserted; reading never wakes the driver."
+        },
+        {
+          "name": "status_valid",
+          "type": "bool",
+          "description": "Driver diagnostic registers were read successfully. Detailed flags are unknown when false."
+        },
+        {
+          "name": "fault_active",
+          "type": "bool",
+          "description": "The fault input is asserted or a valid register reports a global fault."
+        },
+        {
+          "name": "overtemperature_warning",
+          "type": "bool",
+          "description": "Driver temperature warning is reported."
+        },
+        {
+          "name": "undervoltage",
+          "type": "bool",
+          "description": "Driver supply undervoltage is reported; this does not prove a disconnected supply."
+        },
+        {
+          "name": "charge_pump_undervoltage",
+          "type": "bool",
+          "description": "Driver charge-pump undervoltage is reported."
+        },
+        {
+          "name": "overcurrent",
+          "type": "bool",
+          "description": "An overcurrent fault is reported."
+        },
+        {
+          "name": "overtemperature_shutdown",
+          "type": "bool",
+          "description": "A thermal shutdown fault is reported."
+        },
+        {
+          "name": "open_load",
+          "type": "bool",
+          "description": "The configured open-load detector reports a fault; detection depends on operating conditions."
+        },
+        {
+          "name": "current_regulation",
+          "type": "bool",
+          "description": "At least one output reports current regulation; this is not an overcurrent fault."
+        }
+      ]
+    },
+    {
+      "name": "motor_fault_sample",
+      "description": "Timestamped motor-driver diagnostic status. Timestamp marks completion of the read; faults can be latched rather than new events.",
+      "properties": [
+        {
+          "name": "timestamp_us",
+          "type": "uint64_t",
+          "description": "ADC read completion timestamp in the selected clock domain."
+        },
+        {
+          "name": "clock_mode",
+          "type": "uint8_t",
+          "description": "0 uptime, 1 Unix wall time."
+        },
+        {
+          "name": "clock_quality",
+          "type": "uint8_t",
+          "description": "1 valid, 2 stale."
+        },
+        {
+          "name": "sleep_requested",
+          "type": "bool",
+          "description": "The sleep control is asserted; reading never wakes the driver."
+        },
+        {
+          "name": "status_valid",
+          "type": "bool",
+          "description": "Driver diagnostic registers were read successfully. Detailed flags are unknown when false."
+        },
+        {
+          "name": "fault_active",
+          "type": "bool",
+          "description": "The fault input is asserted or a valid register reports a global fault."
+        },
+        {
+          "name": "overtemperature_warning",
+          "type": "bool",
+          "description": "Driver temperature warning is reported."
+        },
+        {
+          "name": "undervoltage",
+          "type": "bool",
+          "description": "Driver supply undervoltage is reported; this does not prove a disconnected supply."
+        },
+        {
+          "name": "charge_pump_undervoltage",
+          "type": "bool",
+          "description": "Driver charge-pump undervoltage is reported."
+        },
+        {
+          "name": "overcurrent",
+          "type": "bool",
+          "description": "An overcurrent fault is reported."
+        },
+        {
+          "name": "overtemperature_shutdown",
+          "type": "bool",
+          "description": "A thermal shutdown fault is reported."
+        },
+        {
+          "name": "open_load",
+          "type": "bool",
+          "description": "The configured open-load detector reports a fault; detection depends on operating conditions."
+        },
+        {
+          "name": "current_regulation",
+          "type": "bool",
+          "description": "At least one output reports current regulation; this is not an overcurrent fault."
+        }
+      ]
+    },
+    {
+      "name": "motor_current_limit",
+      "description": "Applied nominal hardware current-regulation setting.",
+      "properties": [
+        {
+          "name": "enabled",
+          "type": "bool",
+          "description": "Current regulation is enabled on both outputs."
+        },
+        {
+          "name": "threshold_ma",
+          "type": "uint16_t",
+          "description": "Nominal threshold in milliamps."
+        }
+      ]
     }
   ],
   "header": {
@@ -2586,35 +2981,84 @@
       "name": "ENCODER_ODOMETRY",
       "payload_type": "encoder_odometry_sample",
       "index_max": 3,
-      "min_interval_ms": 2
+      "min_interval_ms": 2,
+      "event_supported": false
     },
     {
       "id": 2,
       "name": "PLATFORM_ODOMETRY",
       "payload_type": "platform_odometry_sample",
       "index_max": 0,
-      "min_interval_ms": 2
+      "min_interval_ms": 2,
+      "event_supported": false
     },
     {
       "id": 3,
       "name": "TEMPERATURE",
       "payload_type": "temperature_sample",
       "index_max": 255,
-      "min_interval_ms": 250
+      "min_interval_ms": 250,
+      "event_supported": false
     },
     {
       "id": 4,
       "name": "IMU",
       "payload_type": "imu_telemetry_sample",
       "index_max": 255,
-      "min_interval_ms": 10
+      "min_interval_ms": 10,
+      "event_supported": false
     },
     {
       "id": 5,
       "name": "MOTOR_CURRENT",
       "payload_type": "motor_current_sample",
       "index_max": 3,
-      "min_interval_ms": 20
+      "min_interval_ms": 20,
+      "event_supported": false
+    },
+    {
+      "id": 6,
+      "name": "MOTOR_FAULTS",
+      "payload_type": "motor_fault_sample",
+      "index_max": 3,
+      "min_interval_ms": 100,
+      "event_supported": true
+    }
+  ],
+  "subscription_modes": [
+    {
+      "id": 0,
+      "name": "PERIODIC",
+      "description": "Send the latest sample at each interval."
+    },
+    {
+      "id": 1,
+      "name": "ON_CHANGE",
+      "description": "Send an initial sample, then changed values. Check values at each interval; exclude timestamp and clock metadata from comparison."
+    }
+  ],
+  "subscription_triggers": [
+    {
+      "id": 0,
+      "name": "PERIODIC",
+      "description": "Read at the polling interval."
+    },
+    {
+      "id": 1,
+      "name": "ON_EVENT",
+      "description": "Read promptly on a source event, with background diagnostic reconciliation."
+    }
+  ],
+  "subscription_deliveries": [
+    {
+      "id": 0,
+      "name": "ALL",
+      "description": "Send each triggered update."
+    },
+    {
+      "id": 1,
+      "name": "ON_CHANGE",
+      "description": "Send changed values and optional maximum-silence refreshes."
     }
   ]
 }
