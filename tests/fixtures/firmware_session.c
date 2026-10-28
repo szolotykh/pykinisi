@@ -17,6 +17,14 @@ static uint64_t current_us;
 static uint8_t incoming[8192], outgoing[8192];
 static size_t incoming_size, outgoing_size;
 static unsigned sent_count[256];
+static motor_fault_status diagnostic;
+static uint32_t fault_sequence;
+static uint32_t fixture_event(uint8_t topic, uint8_t index) { (void)index; return topic == TOPIC_MOTOR_FAULTS ? fault_sequence : 0; }
+static motor_current_limit limits[4];
+EXPORT void fixture_set_faults(uint8_t overcurrent, uint8_t valid) {
+    ++fault_sequence;
+    diagnostic.overcurrent = overcurrent; diagnostic.status_valid = valid;
+}
 
 /** Return the monotonic clock supplied by the Python serial adapter. */
 static uint64_t fixture_now(void)
@@ -46,7 +54,26 @@ static uint8_t fixture_handler(controller_command_t *command, protocol_send_fn r
         reply((uint8_t *)&identity, sizeof(identity));
         return RESPONSE_OK;
     }
+    if (command->commandType == GET_MOTOR_CURRENT_LIMIT || command->commandType == SET_MOTOR_CURRENT_LIMIT) {
+        uint8_t index = command->properties.get_motor_current_limit.motor_index;
+        if (command->commandType == SET_MOTOR_CURRENT_LIMIT) {
+            limits[index].enabled = command->properties.set_motor_current_limit.enabled;
+            limits[index].threshold_ma = command->properties.set_motor_current_limit.threshold_ma;
+        }
+        reply((uint8_t *)&limits[index], sizeof(limits[index]));
+        return RESPONSE_OK;
+    }
     if (command->commandType == STOP_MOTOR) return RESPONSE_OK;
+    if (command->commandType == CLEAR_MOTOR_FAULTS) {
+        // Hardware behavior is covered by firmware HAL tests; exercise shared framing here.
+        diagnostic.overcurrent = false;
+        reply((uint8_t *)&diagnostic, sizeof(diagnostic));
+        return RESPONSE_OK;
+    }
+    if (command->commandType == GET_MOTOR_FAULTS) {
+        reply((uint8_t *)&diagnostic, sizeof(diagnostic));
+        return RESPONSE_OK;
+    }
     if (command->commandType == GET_MOTOR_CURRENT) {
         double amps = command->properties.get_motor_current.motor_index + 0.125;
         reply((uint8_t *)&amps, sizeof(amps));
@@ -71,10 +98,13 @@ static uint8_t fixture_handler(controller_command_t *command, protocol_send_fn r
 EXPORT void fixture_reset(uint64_t now_us)
 {
     current_us = now_us;
+    diagnostic = (motor_fault_status){.status_valid = true};
+    for (unsigned i = 0; i < 4; ++i) limits[i] = (motor_current_limit){true, 6500};
     incoming_size = outgoing_size = 0;
     memset(sent_count, 0, sizeof(sent_count));
     connection_init(&session, fixture_handler, fixture_send, fixture_now);
     session.services.calculation_period_ms = fixture_period;
+    session.services.event_sequence = fixture_event;
 }
 
 /** Append serial bytes without assuming a write contains exactly one frame. */

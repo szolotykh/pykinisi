@@ -1,10 +1,12 @@
+from pykinisi import SubscriptionTrigger, SubscriptionDelivery
+from pykinisi.KinisiCommands import SUBSCRIBE_CONFIGURED
 """Generic subscriptions through the real reader and callback worker."""
 import struct
 import threading
 import unittest
 from unittest.mock import patch
-from pykinisi import KinisiController, Topic, ProtocolError, RequestTimeoutError, ControllerError
-from pykinisi.KinisiCommands import (SUBSCRIBE, UNSUBSCRIBE, TELEMETRY_EVENT, GET_ENCODER_VALUE,
+from pykinisi import KinisiController, Topic, SubscriptionMode, ProtocolError, RequestTimeoutError, ControllerError
+from pykinisi.KinisiCommands import (SUBSCRIBE, SUBSCRIBE_WITH_MODE, UNSUBSCRIBE, TELEMETRY_EVENT, GET_ENCODER_VALUE,
                                     ERROR, SET_HEARTBEAT_CONFIG, decode_telemetry_event)
 from test_controller import FakeSerial, Board, frame, wait_until, controller_module
 
@@ -13,7 +15,7 @@ class SubscriptionTests(unittest.TestCase):
     def setUp(self):
         self.transport = FakeSerial()
         self.board = Board(self.transport)
-        self.board.protocol = (2, 7, 0)
+        self.board.protocol = (2, 9, 0)
         self.board.identity = (1, 0, 4, 0)
         self.client = KinisiController(request_timeout=0.12, init_timeout=0.5)
         patched = patch.object(controller_module.serial, 'Serial', return_value=self.transport)
@@ -23,9 +25,89 @@ class SubscriptionTests(unittest.TestCase):
         self.assertTrue(self.client.connect('TEST'), self.client.last_error)
 
     def event(self, topic=Topic.TEMPERATURE, index=0, value=25.0):
+        if topic == Topic.MOTOR_FAULTS:
+            payload = bytes((topic, index)) + struct.pack('<QBB10B', 2**55 + 7, 1, 1, 0, 1, 0, 0, 0, 0, int(value != 0), 0, 0, 0)
+            return frame(TELEMETRY_EVENT, 0, payload)
         count = {Topic.ENCODER_ODOMETRY: 1, Topic.PLATFORM_ODOMETRY: 3, Topic.TEMPERATURE: 1, Topic.IMU: 6, Topic.MOTOR_CURRENT: 1}[topic]
         payload = bytes((topic, index)) + struct.pack('<QBB' + 'd' * count, 2**55 + 7, 1, 1, *([value] * count))
         return frame(TELEMETRY_EVENT, 0, payload)
+
+    def test_configured_wire_snapshot_validation_and_gate(self):
+        self.client.board_info.protocol_minor = 12
+        def respond(command, mid, payload):
+            response = frame(command, mid)
+            if command == SUBSCRIBE_CONFIGURED:
+                response += self.event(Topic(payload[0]), payload[1])
+            self.transport.inject(response)
+        self.board.command_hook = respond
+        received = []
+        options = dict(trigger=SubscriptionTrigger.ON_EVENT, delivery=SubscriptionDelivery.ON_CHANGE, max_silence_ms=5000)
+        handle = self.client.subscribe(Topic.MOTOR_FAULTS, received.append, **options)
+        wait_until(lambda: len(received) == 1)
+        self.assertTrue(handle.active)
+        self.assertIn((SUBSCRIBE_CONFIGURED, struct.pack('<BBIBBI', 6, 0, 0, 1, 1, 5000)), [(c, p) for c, _, p in self.board.commands])
+        count = len(self.board.commands)
+        for invalid in (dict(poll_interval_ms=100), dict(delivery=SubscriptionDelivery.ALL), dict(max_silence_ms=99), dict(interval_ms=100)):
+            with self.assertRaises(ValueError):
+                self.client.subscribe(Topic.MOTOR_FAULTS, received.append, **(options | invalid))
+        self.assertEqual(len(self.board.commands), count)
+        self.client.board_info.protocol_minor = 11
+        with self.assertRaisesRegex(ProtocolError, '2.12'):
+            self.client.subscribe(Topic.MOTOR_FAULTS, received.append, **options)
+        self.assertEqual(len(self.board.commands), count)
+        handle.unsubscribe()
+        self.assertFalse(handle.active)
+
+    def test_on_change_wire_immediate_snapshot_and_replacement(self):
+        def respond(command, mid, payload):
+            response = frame(command, mid)
+            if command == SUBSCRIBE_WITH_MODE:
+                response += self.event(Topic(payload[0]), payload[1])
+            self.transport.inject(response)
+        self.board.command_hook = respond
+        received = []
+        old = self.client.subscribe(Topic.MOTOR_FAULTS, received.append, interval_ms=100, mode=SubscriptionMode.ON_CHANGE)
+        wait_until(lambda: len(received) == 1)
+        self.assertTrue(old.active)
+        self.assertIn((SUBSCRIBE_WITH_MODE, struct.pack('<BBIB', Topic.MOTOR_FAULTS, 0, 100, 1)),
+                      [(c, p) for c, _, p in self.board.commands])
+        current = self.client.subscribe(Topic.MOTOR_FAULTS, received.append, interval_ms=100)
+        self.assertFalse(old.active)
+        count = len(self.board.commands)
+        old.unsubscribe()
+        self.assertEqual(len(self.board.commands), count)
+        current.unsubscribe()
+        self.assertFalse(current.active)
+
+    def test_on_change_validation_and_older_firmware(self):
+        count = len(self.board.commands)
+        for mode in (True, False, 2, -1, '1', 1.0, None):
+            with self.assertRaises(ValueError):
+                self.client.subscribe(Topic.MOTOR_FAULTS, lambda _: None, interval_ms=100, mode=mode)
+        self.assertEqual(len(self.board.commands), count)
+        self.client.board_info.protocol_minor = 8
+        count = len(self.board.commands)
+        with self.assertRaisesRegex(ProtocolError, '2.9'):
+            self.client.subscribe(Topic.MOTOR_FAULTS, lambda _: None, interval_ms=100, mode=SubscriptionMode.ON_CHANGE)
+        self.assertEqual(len(self.board.commands), count)
+        handle = self.client.subscribe(Topic.MOTOR_FAULTS, lambda _: None, interval_ms=100)
+        self.assertTrue(handle.active)
+        handle.unsubscribe()
+
+    def test_four_fault_streams_and_unsubscribe(self):
+        self.board.command_hook = lambda cmd, mid, payload: self.transport.inject(frame(cmd, mid))
+        received = [[], [], [], []]
+        handles = [self.client.subscribe(Topic.MOTOR_FAULTS, received[i].append, index=i, interval_ms=100) for i in range(4)]
+        for i in range(4): self.transport.inject(self.event(Topic.MOTOR_FAULTS, i, i))
+        wait_until(lambda: all(received))
+        for i in range(4):
+            self.assertTrue(received[i][0].status_valid)
+            self.assertEqual(received[i][0].overcurrent, i != 0)
+            self.assertEqual(received[i][0].timestamp_us, 2**55 + 7)
+        for handle in handles: handle.unsubscribe()
+        self.assertTrue(all(not handle.active for handle in handles))
+        self.client.disconnect()
+        self.assertFalse(self.client.supports_topic(Topic.MOTOR_FAULTS))
 
     def test_all_topics_golden_wire_and_immediate_samples(self):
         def respond(command, mid, payload):

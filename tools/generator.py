@@ -27,8 +27,9 @@ DIRECTIONS = {"client_to_controller", "controller_to_client"}
 SESSION_COMMANDS = {
     "PING", "SET_HEARTBEAT_CONFIG", "SUBSCRIBE_ODOMETRY", "UNSUBSCRIBE_ODOMETRY",
     "ENCODER_ODOMETRY_EVENT", "PLATFORM_ODOMETRY_EVENT",
-    "GET_TEMPERATURE", "GET_IMU", "GET_MOTOR_CURRENT",
-    "SUBSCRIBE", "UNSUBSCRIBE", "TELEMETRY_EVENT",
+    "GET_TEMPERATURE", "GET_IMU", "GET_MOTOR_CURRENT", "GET_MOTOR_FAULTS", "CLEAR_MOTOR_FAULTS",
+    "SUBSCRIBE", "SUBSCRIBE_WITH_MODE", "UNSUBSCRIBE", "TELEMETRY_EVENT",
+    "SUBSCRIBE_CONFIGURED", "GET_MOTOR_CURRENT_LIMIT", "SET_MOTOR_CURRENT_LIMIT",
 }
 
 
@@ -197,6 +198,13 @@ def generate_object(object_data):
     result += f"        return bytearray(struct.pack({fmt!r}{', ' if values else ''}{values}))\n"
     result += f"\n    @classmethod\n    def decode(cls, payload: bytes) -> '{name}':\n"
     result += '        """Decode exactly one payload; reject truncation and trailing bytes."""\n'
+    if object_data['name'] == 'motor_current_limit':
+        result += "        if len(payload) != 3 or payload[0] > 1 or int.from_bytes(payload[1:], 'little') == 0:\n"
+        result += "            raise ValueError('Invalid current-limit setting')\n"
+    if object_data['name'] in ('motor_fault_status', 'motor_fault_sample'):
+        offset = 10 if object_data['name'] == 'motor_fault_sample' else 0
+        result += f"        if any(value > 1 for value in payload[{offset}:]):\n"
+        result += "            raise ValueError('Invalid motor fault flags')\n"
     result += f"        return cls(*_unpack_payload({fmt!r}, payload))\n\n\n"
     return result
 
@@ -220,20 +228,31 @@ def _generate_method(cmd, objects):
     if cmd.get("errors"):
         description += "\n\nController errors: " + ", ".join(cmd["errors"]) + "."
     result += _docstring(description, "        ")
-    if cmd['command'] in ('SUBSCRIBE', 'UNSUBSCRIBE'):
+    if cmd['command'] in ('SUBSCRIBE', 'SUBSCRIBE_WITH_MODE', 'SUBSCRIBE_CONFIGURED', 'UNSUBSCRIBE'):
         result += "        validate_topic(topic_id, index)\n"
-    if cmd['command'] == 'SUBSCRIBE':
+    if cmd['command'] in ('SUBSCRIBE', 'SUBSCRIBE_WITH_MODE'):
         result += "        if type(interval_ms) is not int or not TOPIC_DEFINITIONS[topic_id][2] <= interval_ms <= 3600000:\n"
         result += "            raise ValueError('Invalid subscription interval')\n"
     if cmd['command'] in ('GET_TEMPERATURE', 'GET_IMU'):
         result += "        if type(sensor_index) is not int or not 0 <= sensor_index <= 255:\n"
         result += "            raise ValueError('sensor_index must be an integer from 0 to 255')\n"
-    if cmd['command'] == 'GET_MOTOR_CURRENT':
+    if cmd['command'] in ('GET_MOTOR_CURRENT', 'GET_MOTOR_FAULTS', 'CLEAR_MOTOR_FAULTS', 'GET_MOTOR_CURRENT_LIMIT', 'SET_MOTOR_CURRENT_LIMIT'):
         result += "        if type(motor_index) is not int or not 0 <= motor_index <= 3:\n"
         result += "            raise ValueError('motor_index must be an integer from 0 to 3')\n"
+    if cmd['command'] == 'SET_MOTOR_CURRENT_LIMIT':
+        result += "        if type(enabled) is not bool or type(threshold_ma) is not int or not 1 <= threshold_ma <= 65535:\n"
+        result += "            raise ValueError('Expected enabled boolean and threshold_ma integer from 1 to 65535')\n"
     if velocity:
         result += "        if any(not math.isfinite(value) or value < 0 for value in (kp, ki, kd, integral_limit)) or integral_limit > 100:\n"
         result += "            raise ValueError('Velocity gains must be finite and nonnegative; integral_limit must be 0..100 PWM percentage points')\n"
+    if cmd['command'] == 'SUBSCRIBE_CONFIGURED':
+        result += "        if isinstance(trigger, bool) or not isinstance(trigger, int) or trigger not in tuple(SubscriptionTrigger) or isinstance(delivery, bool) or not isinstance(delivery, int) or delivery not in tuple(SubscriptionDelivery):\n            raise ValueError('Invalid subscription settings')\n"
+        result += "        minimum = TOPIC_DEFINITIONS[topic_id][2]\n"
+        result += "        if type(poll_interval_ms) is not int or poll_interval_ms > 3600000 or (trigger == SubscriptionTrigger.ON_EVENT and (poll_interval_ms != 0 or topic_id not in EVENT_TOPICS)) or (trigger == SubscriptionTrigger.PERIODIC and poll_interval_ms < minimum):\n            raise ValueError('Invalid polling interval or trigger')\n"
+        result += "        if type(max_silence_ms) is not int or not 0 <= max_silence_ms <= 3600000 or (max_silence_ms != 0 and (delivery != SubscriptionDelivery.ON_CHANGE or max_silence_ms < minimum)):\n            raise ValueError('Invalid maximum silence')\n"
+    if cmd['command'] == 'SUBSCRIBE_WITH_MODE':
+        result += "        if isinstance(mode, bool) or not isinstance(mode, int) or mode not in tuple(SubscriptionMode):\n"
+        result += "            raise ValueError('Invalid subscription mode')\n"
     values = ", ".join(prop["name"] for prop in props)
     result += f"        payload = struct.pack({_format(props)!r}{', ' if values else ''}{values})\n"
     size = f"{get_object_name(obj)}.get_size()" if obj else str(type_to_size_map[response["type"]]) if response else "0"
@@ -291,8 +310,20 @@ def generate_python_code(commands_data):
 '''
     for obj in commands_data.get("objects", []):
         result += generate_object(obj)
+    if commands_data.get('subscription_modes'):
+        result += 'class SubscriptionMode(IntEnum):\n    """Delivery behavior for a generic telemetry subscription."""\n'
+        for mode in commands_data['subscription_modes']:
+            result += f"    {mode['name']} = {mode['id']}\n"
+        result += '\n\n'
+    for key, name in [('subscription_triggers', 'SubscriptionTrigger'), ('subscription_deliveries', 'SubscriptionDelivery')]:
+        if commands_data.get(key):
+            result += f'class {name}(IntEnum):\n'
+            for item in commands_data[key]:
+                result += f"    {item['name']} = {item['id']}\n"
+            result += '\n\n'
     topics = commands_data.get('topics', [])
     if topics:
+        result += 'EVENT_TOPICS = ' + repr(tuple(t['id'] for t in topics if t.get('event_supported'))) + '\n\n'
         result += 'class Topic(IntEnum):\n    """Stable wire identifiers for telemetry sources."""\n'
         for topic in topics:
             result += f"    {topic['name']} = {topic['id']}\n"

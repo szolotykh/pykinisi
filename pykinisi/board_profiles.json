@@ -16,22 +16,26 @@
         {
           "id": 0,
           "current_sense": false,
-          "current_limit": false
+          "current_limit": false,
+          "fault_reporting": false
         },
         {
           "id": 1,
           "current_sense": false,
-          "current_limit": false
+          "current_limit": false,
+          "fault_reporting": false
         },
         {
           "id": 2,
           "current_sense": false,
-          "current_limit": false
+          "current_limit": false,
+          "fault_reporting": false
         },
         {
           "id": 3,
           "current_sense": false,
-          "current_limit": false
+          "current_limit": false,
+          "fault_reporting": false
         }
       ],
       "sensors": {
@@ -54,22 +58,26 @@
         {
           "id": 0,
           "current_sense": false,
-          "current_limit": false
+          "current_limit": false,
+          "fault_reporting": false
         },
         {
           "id": 1,
           "current_sense": false,
-          "current_limit": false
+          "current_limit": false,
+          "fault_reporting": false
         },
         {
           "id": 2,
           "current_sense": false,
-          "current_limit": false
+          "current_limit": false,
+          "fault_reporting": false
         },
         {
           "id": 3,
           "current_sense": false,
-          "current_limit": false
+          "current_limit": false,
+          "fault_reporting": false
         }
       ],
       "sensors": {
@@ -92,22 +100,26 @@
         {
           "id": 0,
           "current_sense": false,
-          "current_limit": false
+          "current_limit": false,
+          "fault_reporting": false
         },
         {
           "id": 1,
           "current_sense": false,
-          "current_limit": false
+          "current_limit": false,
+          "fault_reporting": false
         },
         {
           "id": 2,
           "current_sense": false,
-          "current_limit": false
+          "current_limit": false,
+          "fault_reporting": false
         },
         {
           "id": 3,
           "current_sense": false,
-          "current_limit": false
+          "current_limit": false,
+          "fault_reporting": false
         }
       ],
       "sensors": {
@@ -130,22 +142,66 @@
         {
           "id": 0,
           "current_sense": true,
-          "current_limit": true
+          "current_limit": true,
+          "current_limit_options": {
+            "type": "discrete",
+            "supported_thresholds_ma": [
+              4000,
+              5400,
+              6500,
+              7000
+            ],
+            "can_disable": true
+          },
+          "fault_reporting": true
         },
         {
           "id": 1,
           "current_sense": true,
-          "current_limit": true
+          "current_limit": true,
+          "current_limit_options": {
+            "type": "discrete",
+            "supported_thresholds_ma": [
+              4000,
+              5400,
+              6500,
+              7000
+            ],
+            "can_disable": true
+          },
+          "fault_reporting": true
         },
         {
           "id": 2,
           "current_sense": true,
-          "current_limit": true
+          "current_limit": true,
+          "current_limit_options": {
+            "type": "discrete",
+            "supported_thresholds_ma": [
+              4000,
+              5400,
+              6500,
+              7000
+            ],
+            "can_disable": true
+          },
+          "fault_reporting": true
         },
         {
           "id": 3,
           "current_sense": true,
-          "current_limit": true
+          "current_limit": true,
+          "current_limit_options": {
+            "type": "discrete",
+            "supported_thresholds_ma": [
+              4000,
+              5400,
+              6500,
+              7000
+            ],
+            "can_disable": true
+          },
+          "fault_reporting": true
         }
       ],
       "sensors": {

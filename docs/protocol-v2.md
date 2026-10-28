@@ -1,6 +1,6 @@
 # Messages API v2
 
-pykinisi includes messages API **2.6.0** and connects to firmware **2.1+** within
+pykinisi includes messages API **2.11.0** and connects to firmware **2.1+** within
 protocol major 2, gating newer commands separately. API 1.x firmware and clients are
 incompatible with the new framing and responses; update firmware and the SDK
 together. Existing motor and GPIO method arguments remain the same. Methods
@@ -96,7 +96,7 @@ An unknown board has no profile and `supports_sensor` returns `False`, but it ca
 still connect and use compatible commands. Direct sensor reads on unknown boards
 rely on firmware availability errors. A known absent sensor or invalid sensor ID
 is rejected before I/O. No profile is borrowed from a different board revision.
-Per-motor `current_sense` and `current_limit` flags describe fitted hardware;
+Per-motor `current_sense`, `current_limit`, and `fault_reporting` flags describe fitted hardware;
 current reads and subscriptions require protocol 2.7. Use
 `supports_motor_current(index)` to check availability and see
 [motor current](connection-monitoring.md) for usage.
@@ -254,3 +254,33 @@ commands override position mode; stop/brake or reinitialization can require
 position setup again. See [motor](../examples/MotorPositionController.py) and
 [platform](../examples/PlatformPositionController.py) examples for initialization,
 reset, target and readback sequences.
+
+## Motor current limits
+
+Current-limit configuration requires protocol 2.11 and fitted hardware. The public
+profile supplies numeric `supported_thresholds_ma` and `can_disable`; options are
+hardware metadata, while the support helper also checks firmware availability.
+Unknown/unsupported motors have no options. Values use integer milliamps and SDKs
+reject settings outside the known profile before sending. Firmware validates them
+independently. No board-specific enum is required.
+
+```python
+options = controller.get_motor_current_limit_options(0)
+if controller.supports_motor_current_limit(0):
+    controller.initialize_motor(0, False)
+    applied = controller.set_motor_current_limit(0, True, 5400)
+    actual = controller.get_motor_current_limit(0)
+    print(options["supported_thresholds_ma"], applied.threshold_ma, actual.enabled)
+```
+
+Both GET and SET require an initialized, awake motor. SET stops the motor and its
+controller, verifies the applied setting, and leaves the motor stopped even on
+I/O failure. Platform-owned motors reject SET; release ownership first. GET does
+not change motor state. Settings are volatile: motor initialization reapplies
+board defaults, and driver power loss requires reinitialization. Disabling current
+regulation leaves overcurrent protection unchanged.
+
+An unknown board profile does not advertise support; explicit requests with a
+compatible protocol can still reach firmware. No custom profiles are loaded.
+See [firmware current-limit behavior](https://github.com/szolotykh/kinisi-motor-controller-firmware/blob/main/docs/motor-current-limit.md)
+for errors, persistence, register behavior, and wire sizes.
