@@ -9,7 +9,7 @@ import struct
 from enum import IntEnum
 
 
-PROTOCOL_VERSION = (2, 12, 0)
+PROTOCOL_VERSION = (2, 13, 0)
 
 GET_TEMPERATURE = 0x50
 GET_IMU = 0x51
@@ -90,6 +90,8 @@ CLEAR_MOTOR_FAULTS = 0x54
 GET_MOTOR_CURRENT_LIMIT = 0x55
 SET_MOTOR_CURRENT_LIMIT = 0x56
 SUBSCRIBE_CONFIGURED = 0x84
+GET_PWM_FREQUENCY = 0x57
+SET_PWM_FREQUENCY = 0x58
 
 
 class ErrorCode(IntEnum):
@@ -699,6 +701,14 @@ class SubscriptionTrigger(IntEnum):
 class SubscriptionDelivery(IntEnum):
     ALL = 0
     ON_CHANGE = 1
+
+
+class PwmFrequency(IntEnum):
+    KHZ_10 = 10000
+    KHZ_20 = 20000
+    KHZ_25 = 25000
+    KHZ_50 = 50000
+    KHZ_100 = 100000
 
 
 EVENT_TOPICS = (6,)
@@ -1803,4 +1813,31 @@ class KinisiCommands:
             raise ValueError('Invalid maximum silence')
         payload = struct.pack('<BBIBBI', topic_id, index, poll_interval_ms, trigger, delivery, max_silence_ms)
         result = self._request(SUBSCRIBE_CONFIGURED, payload, 0)
+
+    def get_pwm_frequency(self) -> int:
+        """Read the board-wide motor PWM frequency in hertz. Does not initialize motors or
+        change outputs.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        INTERNAL_ERROR.
+        """
+        payload = struct.pack('<')
+        result = self._request(GET_PWM_FREQUENCY, payload, 4)
+        return _unpack_payload('<I', result)[0]
+
+    def set_pwm_frequency(self, frequency_hz: int) -> int:
+        """Stop all motors and motor/platform controllers, then set the board-wide PWM
+        frequency. All motors remain stopped. The setting survives motor initialization and
+        connection changes; reboot restores the board default.
+
+        frequency_hz: PWM frequency selected from the board-supported enum values.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        INTERNAL_ERROR.
+        """
+        if isinstance(frequency_hz, bool) or not isinstance(frequency_hz, int) or frequency_hz not in tuple(PwmFrequency):
+            raise ValueError('Invalid PWM frequency')
+        payload = struct.pack('<I', frequency_hz)
+        result = self._request(SET_PWM_FREQUENCY, payload, 4)
+        return _unpack_payload('<I', result)[0]
 

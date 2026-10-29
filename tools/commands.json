@@ -1,5 +1,5 @@
 {
-  "version": "2.12.0",
+  "version": "2.13.0",
   "commands": [
     {
       "command": "GET_TEMPERATURE",
@@ -2333,6 +2333,55 @@
         "SUBSCRIPTION_LIMIT",
         "SAMPLE_OUT_OF_RANGE"
       ]
+    },
+    {
+      "command": "GET_PWM_FREQUENCY",
+      "code": "0x57",
+      "direction": "client_to_controller",
+      "category": "Motor",
+      "description": "Read the board-wide motor PWM frequency in hertz. Does not initialize motors or change outputs.",
+      "properties": [],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "INTERNAL_ERROR"
+      ],
+      "response": {
+        "name": "frequency_hz",
+        "type": "uint32_t",
+        "direction": "controller_to_client",
+        "description": "Applied board-wide PWM frequency in hertz."
+      }
+    },
+    {
+      "command": "SET_PWM_FREQUENCY",
+      "code": "0x58",
+      "direction": "client_to_controller",
+      "category": "Motor",
+      "description": "Stop all motors and motor/platform controllers, then set the board-wide PWM frequency. All motors remain stopped. The setting survives motor initialization and connection changes; reboot restores the board default.",
+      "properties": [
+        {
+          "name": "frequency_hz",
+          "type": "uint32_t",
+          "enum": "pwm_frequency",
+          "description": "PWM frequency selected from the board-supported enum values."
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "INTERNAL_ERROR"
+      ],
+      "response": {
+        "name": "frequency_hz",
+        "type": "uint32_t",
+        "direction": "controller_to_client",
+        "description": "Applied board-wide PWM frequency in hertz."
+      }
     }
   ],
   "objects": [
@@ -3059,6 +3108,33 @@
       "id": 1,
       "name": "ON_CHANGE",
       "description": "Send changed values and optional maximum-silence refreshes."
+    }
+  ],
+  "pwm_frequencies": [
+    {
+      "id": 10000,
+      "name": "KHZ_10",
+      "description": "10 kHz"
+    },
+    {
+      "id": 20000,
+      "name": "KHZ_20",
+      "description": "20 kHz"
+    },
+    {
+      "id": 25000,
+      "name": "KHZ_25",
+      "description": "25 kHz"
+    },
+    {
+      "id": 50000,
+      "name": "KHZ_50",
+      "description": "50 kHz"
+    },
+    {
+      "id": 100000,
+      "name": "KHZ_100",
+      "description": "100 kHz"
     }
   ]
 }

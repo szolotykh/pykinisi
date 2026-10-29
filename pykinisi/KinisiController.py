@@ -18,10 +18,10 @@ from .KinisiCommands import (
     GET_ENCODER_ODOMETRY, START_PLATFORM_ODOMETRY, GET_PLATFORM_ODOMETRY,
     PING, SET_HEARTBEAT_CONFIG, SUBSCRIBE_ODOMETRY, UNSUBSCRIBE_ODOMETRY,
     ENCODER_ODOMETRY_EVENT, PLATFORM_ODOMETRY_EVENT,
-    EncoderOdometrySample, PlatformOdometrySample, GET_TEMPERATURE, GET_IMU, GET_MOTOR_CURRENT, GET_MOTOR_FAULTS, CLEAR_MOTOR_FAULTS, GET_MOTOR_CURRENT_LIMIT, SET_MOTOR_CURRENT_LIMIT,
+    EncoderOdometrySample, PlatformOdometrySample, GET_TEMPERATURE, GET_IMU, GET_MOTOR_CURRENT, GET_MOTOR_FAULTS, CLEAR_MOTOR_FAULTS, GET_PWM_FREQUENCY, SET_PWM_FREQUENCY, GET_MOTOR_CURRENT_LIMIT, SET_MOTOR_CURRENT_LIMIT,
     SUBSCRIBE, SUBSCRIBE_WITH_MODE, SUBSCRIBE_CONFIGURED, UNSUBSCRIBE, TELEMETRY_EVENT, Topic, SubscriptionMode, SubscriptionTrigger, SubscriptionDelivery, validate_topic, decode_telemetry_event,
 )
-from .board_profile import get_board_profile, supports_board_sensor, supports_motor_current, supports_motor_faults, get_motor_current_limit_options, supports_motor_current_limit
+from .board_profile import get_board_profile, supports_board_sensor, supports_motor_current, supports_motor_faults, get_motor_current_limit_options, supports_motor_current_limit, get_pwm_frequency_options, supports_pwm_frequency
 from ._version import VERSION
 from .KinisiCommands import (
     INITIALIZE_MOTOR_POSITION_CONTROLLER, RESET_MOTOR_POSITION, SET_MOTOR_POSITION,
@@ -179,6 +179,14 @@ class KinisiController(KinisiCommands):
         """True only after a compatible identity and matching READY have arrived."""
         with self._lock:
             return self.serial is not None and self._ready
+
+    def get_pwm_frequency_options(self):
+        with self._lock:
+            return get_pwm_frequency_options(self.board_info)
+
+    def supports_pwm_frequency(self):
+        with self._lock:
+            return supports_pwm_frequency(self.board_info)
 
     def get_motor_current_limit_options(self, index=0):
         """Read the selected motor's supported thresholds and disable capability."""
@@ -416,6 +424,14 @@ class KinisiController(KinisiCommands):
                     raise ProtocolError('Motor current requires a ready protocol 2.7+ controller')
                 if command in (SUBSCRIBE, SUBSCRIBE_WITH_MODE, SUBSCRIBE_CONFIGURED) and self.board_profile is not None and not self.supports_topic(payload[0], payload[1]):
                     raise ProtocolError('This board does not support the selected telemetry source')
+            if command in (GET_PWM_FREQUENCY, SET_PWM_FREQUENCY):
+                if not self._ready or self.board_info is None or self.board_info.protocol_major != 2 or self.board_info.protocol_minor < 13:
+                    raise ProtocolError('PWM frequency configuration requires a ready protocol 2.13 or newer controller')
+                options = self.get_pwm_frequency_options()
+                if self.board_profile is not None and options is None:
+                    raise ProtocolError('This board has no configurable PWM frequency')
+                if command == SET_PWM_FREQUENCY and options is not None and int.from_bytes(payload, 'little') not in options['supported_hz']:
+                    raise ValueError('PWM frequency is not allowed by this board')
             if command in (GET_MOTOR_CURRENT_LIMIT, SET_MOTOR_CURRENT_LIMIT):
                 if (self.board_info is None or self.board_info.protocol_major != 2 or self.board_info.protocol_minor < 11):
                     raise ProtocolError('Current-limit setup requires firmware protocol 2.11 or newer')

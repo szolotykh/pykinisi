@@ -29,7 +29,14 @@ def validate(bundle):
     require(isinstance(bundle['boards'], list) and bool(bundle['boards']), 'Expected board profiles')
     identities = set()
     for profile in bundle['boards']:
-        fields(profile, ('board', 'resources', 'motor_features', 'sensors'), 'board profile')
+        fields(profile, ('board', 'resources', 'motor_features', 'sensors') + (('pwm_frequency',) if 'pwm_frequency' in profile else ()), 'board profile')
+        if 'pwm_frequency' in profile:
+            pwm = profile['pwm_frequency']
+            fields(pwm, ('default_hz', 'supported_hz'), 'PWM frequency')
+            values = pwm['supported_hz']
+            require(isinstance(values, list) and 1 <= len(values) <= 255 and
+                    all(integer(v, 1, 0xffffffff) for v in values) and values == sorted(set(values)) and
+                    integer(pwm['default_hz'], 1, 0xffffffff) and pwm['default_hz'] in values, 'Invalid PWM frequencies')
         board = profile['board']
         fields(board, ('model', 'revision'), 'board identity')
         require(integer(board['model'], 1, 255), 'Invalid board model')
