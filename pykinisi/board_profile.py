@@ -86,3 +86,14 @@ def supports_motor_current_limit(info, index=0):
     major, minor = _field(info, 'protocol_major'), _field(info, 'protocol_minor')
     return (type(major) is int and major == 2 and type(minor) is int and 11 <= minor <= 255 and
             get_motor_current_limit_options(info, index) is not None)
+
+
+def get_pwm_frequency_options(info):
+    profile = get_board_profile(info)
+    return profile.get('pwm_frequency') if profile else None
+
+
+def supports_pwm_frequency(info):
+    major, minor = _field(info, 'protocol_major'), _field(info, 'protocol_minor')
+    return (type(major) is int and major == 2 and type(minor) is int and 13 <= minor <= 255 and
+            get_pwm_frequency_options(info) is not None)

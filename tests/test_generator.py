@@ -81,6 +81,7 @@ def schema_fixture():
         ],
     }
     bundled = json.loads((ROOT / 'tools/commands.json').read_text(encoding='utf-8'))
+    fixture['pwm_frequencies'] = bundled['pwm_frequencies']
     fixture['topics'] = bundled['topics']
     fixture['subscription_modes'] = bundled['subscription_modes']
     fixture['subscription_triggers'] = bundled['subscription_triggers']
@@ -88,7 +89,7 @@ def schema_fixture():
     payloads = {topic['payload_type'] for topic in bundled['topics']} | {'motor_fault_status', 'motor_current_limit'}
     fixture['objects'].extend(obj for obj in bundled['objects'] if obj['name'] in payloads)
     fixture['commands'].extend({k: v for k, v in cmd.items() if k != 'errors'}
-                               for cmd in bundled['commands'] if cmd['command'] in ('SUBSCRIBE', 'SUBSCRIBE_WITH_MODE', 'SUBSCRIBE_CONFIGURED', 'UNSUBSCRIBE', 'TELEMETRY_EVENT', 'GET_MOTOR_CURRENT', 'GET_MOTOR_FAULTS', 'CLEAR_MOTOR_FAULTS', 'GET_MOTOR_CURRENT_LIMIT', 'SET_MOTOR_CURRENT_LIMIT'))
+                               for cmd in bundled['commands'] if cmd['command'] in ('GET_PWM_FREQUENCY', 'SET_PWM_FREQUENCY', 'SUBSCRIBE', 'SUBSCRIBE_WITH_MODE', 'SUBSCRIBE_CONFIGURED', 'UNSUBSCRIBE', 'TELEMETRY_EVENT', 'GET_MOTOR_CURRENT', 'GET_MOTOR_FAULTS', 'CLEAR_MOTOR_FAULTS', 'GET_MOTOR_CURRENT_LIMIT', 'SET_MOTOR_CURRENT_LIMIT'))
     return fixture
 
 
@@ -280,6 +281,16 @@ class CheckedInSchemaTests(unittest.TestCase):
         """Load the committed/generated module without requiring pyserial."""
         self.commands = load_module("checked_in_commands", ROOT / "pykinisi" / "KinisiCommands.py")
 
+    def test_pwm_catalog_and_layout(self):
+        for mutate in (
+                lambda s: s.pop('pwm_frequencies'),
+                lambda s: s['pwm_frequencies'][0].update(id=True),
+                lambda s: s['pwm_frequencies'][0].update(name='BAD'),
+                lambda s: next(c for c in s['commands'] if c['command'] == 'SET_PWM_FREQUENCY')['properties'][0].update(type='uint16_t')):
+            schema = schema_fixture()
+            mutate(schema)
+            with self.assertRaises(ValueError): generator.generate_python_code(schema)
+
     def test_topic_metadata_and_retirement_are_validated(self):
         schema = json.loads((ROOT / 'tools/commands.json').read_text(encoding='utf-8'))
         for mutate in (
@@ -379,6 +390,8 @@ class UpdaterTests(unittest.TestCase):
             for version, missing in (("2.5.0", {"GET_TEMPERATURE"}), ("2.4.0", {"GET_IMU"}),
                                      ("2.3.1", {"GET_TEMPERATURE", "GET_IMU"}), ("2.6.0", {"GET_MOTOR_CURRENT"}),
                                      ("2.11.0", {"SUBSCRIBE_CONFIGURED"}),
+                                     ("2.12.0", {"GET_PWM_FREQUENCY"}),
+                                     ("2.12.0", {"SET_PWM_FREQUENCY"}),
                                      ("2.10.0", {"GET_MOTOR_CURRENT_LIMIT"}),
                                      ("2.10.0", {"SET_MOTOR_CURRENT_LIMIT"})):
                 with self.subTest(version=version, missing=missing):

@@ -82,6 +82,9 @@ def validate_metadata(schema, sizes):
         raise ValueError('Schema is missing runtime topics')
     for command in commands.values():
         for prop in command.get('properties', []):
+            if prop.get('enum') == 'pwm_frequency':
+                if prop['type'] != 'uint32_t': raise ValueError('PWM frequency requires uint32_t')
+                continue
             if 'enum' in prop and (prop['enum'] not in ('telemetry_topic', 'subscription_mode', 'subscription_trigger', 'subscription_delivery') or prop['type'] != 'uint8_t'):
                 raise ValueError('Invalid topic enum reference')
     prefix = [('topic_id', 'uint8_t', 'telemetry_topic'), ('index', 'uint8_t', None)]
