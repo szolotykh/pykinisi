@@ -25,6 +25,7 @@ type_mapping = {name: "bool" if name == "bool" else "float" if name == "double" 
 DIRECTIONS = {"client_to_controller", "controller_to_client"}
 # These messages support handwritten session behavior, independently of schema version.
 SESSION_COMMANDS = {
+    "SAVE_CONFIGURATION", "GET_CONFIGURATION_FIELD",
     "PING", "SET_HEARTBEAT_CONFIG", "SUBSCRIBE_ODOMETRY", "UNSUBSCRIBE_ODOMETRY",
     "ENCODER_ODOMETRY_EVENT", "PLATFORM_ODOMETRY_EVENT",
     "GET_TEMPERATURE", "GET_IMU", "GET_MOTOR_CURRENT", "GET_MOTOR_FAULTS", "CLEAR_MOTOR_FAULTS",

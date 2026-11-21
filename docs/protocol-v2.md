@@ -297,7 +297,8 @@ The default is available as `pwm_frequency.default_hz`.
 Applying a frequency stops every motor and motor/platform controller and leaves
 them stopped. It preserves duty-cycle resolution, motor direction configuration,
 and driver current-limit settings. Restart motion explicitly. The selected frequency
-survives motor initialization and disconnect/reconnect; reboot restores the default.
+survives motor initialization and reconnects. At boot, v0.4 restores an explicitly
+saved frequency when a valid setup exists. Otherwise the board uses its default.
 GET reads the board's active frequency selection without changing outputs.
 Unsupported values are rejected; they are never silently rounded.
 
@@ -312,3 +313,20 @@ if controller.supports_pwm_frequency():
 
 Unknown boards have no advertised options; explicit commands on compatible firmware
 still reach the board for validation. Older firmware is rejected locally before I/O.
+
+## Save and restore the platform setup
+
+On a ready v0.4 board with protocol 2.14 or later, `supports_configuration_save()`
+reports whether configuration storage is available. Initialize the platform and
+apply the desired encoder settings, directions and PWM frequency. Calling
+`save_configuration()` returns normally after the firmware acknowledges a durable write. An unsupported session raises `ProtocolError`, and a device-reported failure raises `ControllerError`.
+
+After restart, connect and read the running setup before sending another
+platform initialization. `get_configuration_field(field, index)` reads the
+platform type (0), wheel diameter (1), track or length (2), width or radius
+(3), encoder resolution (4), encoder direction (5), or motor direction (6).
+Use index zero for platform fields and the channel index for encoder and
+motor fields. `get_pwm_frequency()` reads the applied frequency in hertz.
+The board restores the saved setup with outputs stopped. Reconnecting during
+the same boot preserves running edits. Call Save again to retain those edits
+across the next restart.

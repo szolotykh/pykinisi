@@ -1,5 +1,5 @@
 {
-  "version": "2.13.0",
+  "version": "2.14.0",
   "commands": [
     {
       "command": "GET_TEMPERATURE",
@@ -2360,7 +2360,7 @@
       "code": "0x58",
       "direction": "client_to_controller",
       "category": "Motor",
-      "description": "Stop all motors and motor/platform controllers, then set the board-wide PWM frequency. All motors remain stopped. The setting survives motor initialization and connection changes; reboot restores the board default.",
+      "description": "Stop all motors and motor/platform controllers, then set the board-wide PWM frequency. All motors remain stopped. The setting survives motor initialization and connection changes. At boot the board uses its default unless it restores an explicitly saved v0.4 configuration.",
       "properties": [
         {
           "name": "frequency_hz",
@@ -2381,6 +2381,56 @@
         "type": "uint32_t",
         "direction": "controller_to_client",
         "description": "Applied board-wide PWM frequency in hertz."
+      }
+    },
+    {
+      "command": "SAVE_CONFIGURATION",
+      "code": "0x59",
+      "direction": "client_to_controller",
+      "category": "Configuration",
+      "description": "Save the complete running platform setup and motor PWM frequency to onboard FRAM. Available on v0.4 with protocol 2.14 or later. ACK confirms a durable save. A subsequent boot restores the setup with outputs stopped.",
+      "properties": [],
+      "errors": [
+        "INVALID_LENGTH",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "PLATFORM_NOT_INITIALIZED",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR"
+      ]
+    },
+    {
+      "command": "GET_CONFIGURATION_FIELD",
+      "code": "0x5A",
+      "direction": "client_to_controller",
+      "category": "Configuration",
+      "description": "Read one field of the running v0.4 configuration. Use GET_PWM_FREQUENCY to read the board-wide switching frequency.",
+      "properties": [
+        {
+          "name": "field",
+          "type": "uint8_t",
+          "description": "0 platform type (0 unconfigured, 1 differential, 2 omni, 3 mecanum), 1 wheel diameter, 2 track or length, 3 width or radius, 4 encoder resolution, 5 encoder reversed, 6 motor reversed."
+        },
+        {
+          "name": "index",
+          "type": "uint8_t",
+          "description": "Zero for platform fields. For fields 4 through 6, use the zero-based channel index."
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INVALID_ARGUMENT",
+        "PLATFORM_NOT_INITIALIZED"
+      ],
+      "response": {
+        "name": "value",
+        "type": "double",
+        "direction": "controller_to_client",
+        "description": "Current field value in the units of the corresponding initialization command. Boolean flags are returned as zero or one."
       }
     }
   ],
