@@ -1239,9 +1239,8 @@ class KinisiCommands:
         is_encoder_reversed_2: Reverses encoder 2 counting direction, independently of motor
         2's is_reversed_2. Set so the closed-loop feedback is negative (flip if the wheel
         runs away when given a target speed).
-        wheels_diameter: Diameter of the robot wheels in millimeters.
-        robot_radius: Distance berween the center of the robot and the center of the wheels
-        in millimeters.
+        wheels_diameter: Diameter of the robot wheels in meters.
+        robot_radius: Distance from the robot center to each wheel center in meters.
         encoder_resolution: Encoder resolution in ticks per revolution. The value can not be
         negative. If platform does not have encoders, the value should be set to zero.
 
@@ -1300,7 +1299,7 @@ class KinisiCommands:
         (0..100). Zero disables integral action.
 
         Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
-        PLATFORM_NOT_INITIALIZED, INIT_REQUIRED.
+        ENCODER_NOT_INITIALIZED, PLATFORM_NOT_INITIALIZED, INIT_REQUIRED.
         """
         if any(not math.isfinite(value) or value < 0 for value in (kp, ki, kd, integral_limit)) or integral_limit > 100:
             raise ValueError('Velocity gains must be finite and nonnegative; integral_limit must be 0..100 PWM percentage points')
@@ -1342,7 +1341,7 @@ class KinisiCommands:
         """This command starts the odometry calculation for the platform.
 
         Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED,
-        CLOCK_NOT_READY, PLATFORM_NOT_INITIALIZED.
+        CLOCK_NOT_READY, ENCODER_NOT_INITIALIZED, PLATFORM_NOT_INITIALIZED.
         """
         payload = struct.pack('<')
         result = self._request(START_PLATFORM_ODOMETRY, payload, 0)
