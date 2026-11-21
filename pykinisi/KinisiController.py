@@ -19,6 +19,7 @@ from .KinisiCommands import (
     PING, SET_HEARTBEAT_CONFIG, SUBSCRIBE_ODOMETRY, UNSUBSCRIBE_ODOMETRY,
     ENCODER_ODOMETRY_EVENT, PLATFORM_ODOMETRY_EVENT,
     EncoderOdometrySample, PlatformOdometrySample, GET_TEMPERATURE, GET_IMU, GET_MOTOR_CURRENT, GET_MOTOR_FAULTS, CLEAR_MOTOR_FAULTS, GET_PWM_FREQUENCY, SET_PWM_FREQUENCY, GET_MOTOR_CURRENT_LIMIT, SET_MOTOR_CURRENT_LIMIT,
+    SAVE_CONFIGURATION, GET_CONFIGURATION_FIELD,
     SUBSCRIBE, SUBSCRIBE_WITH_MODE, SUBSCRIBE_CONFIGURED, UNSUBSCRIBE, TELEMETRY_EVENT, Topic, SubscriptionMode, SubscriptionTrigger, SubscriptionDelivery, validate_topic, decode_telemetry_event,
 )
 from .board_profile import get_board_profile, supports_board_sensor, supports_motor_current, supports_motor_faults, get_motor_current_limit_options, supports_motor_current_limit, get_pwm_frequency_options, supports_pwm_frequency
@@ -187,6 +188,14 @@ class KinisiController(KinisiCommands):
     def supports_pwm_frequency(self):
         with self._lock:
             return supports_pwm_frequency(self.board_info)
+
+    def supports_configuration_save(self):
+        """Return whether the connected board can save its setup to FRAM."""
+        with self._lock:
+            info = self.board_info
+            return (self._ready and self.board_profile is not None and
+                    (info.board_model, info.board_major, info.board_minor, info.board_patch) == (1, 0, 4, 0) and
+                    info.protocol_major == 2 and info.protocol_minor >= 14)
 
     def get_motor_current_limit_options(self, index=0):
         """Read the selected motor's supported thresholds and disable capability."""
@@ -424,6 +433,8 @@ class KinisiController(KinisiCommands):
                     raise ProtocolError('Motor current requires a ready protocol 2.7+ controller')
                 if command in (SUBSCRIBE, SUBSCRIBE_WITH_MODE, SUBSCRIBE_CONFIGURED) and self.board_profile is not None and not self.supports_topic(payload[0], payload[1]):
                     raise ProtocolError('This board does not support the selected telemetry source')
+            if command in (SAVE_CONFIGURATION, GET_CONFIGURATION_FIELD) and not self.supports_configuration_save():
+                raise ProtocolError('Configuration storage requires a ready v0.4 controller running protocol 2.14 or newer')
             if command in (GET_PWM_FREQUENCY, SET_PWM_FREQUENCY):
                 if not self._ready or self.board_info is None or self.board_info.protocol_major != 2 or self.board_info.protocol_minor < 13:
                     raise ProtocolError('PWM frequency configuration requires a ready protocol 2.13 or newer controller')

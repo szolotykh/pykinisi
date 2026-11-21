@@ -89,7 +89,7 @@ def schema_fixture():
     payloads = {topic['payload_type'] for topic in bundled['topics']} | {'motor_fault_status', 'motor_current_limit'}
     fixture['objects'].extend(obj for obj in bundled['objects'] if obj['name'] in payloads)
     fixture['commands'].extend({k: v for k, v in cmd.items() if k != 'errors'}
-                               for cmd in bundled['commands'] if cmd['command'] in ('GET_PWM_FREQUENCY', 'SET_PWM_FREQUENCY', 'SUBSCRIBE', 'SUBSCRIBE_WITH_MODE', 'SUBSCRIBE_CONFIGURED', 'UNSUBSCRIBE', 'TELEMETRY_EVENT', 'GET_MOTOR_CURRENT', 'GET_MOTOR_FAULTS', 'CLEAR_MOTOR_FAULTS', 'GET_MOTOR_CURRENT_LIMIT', 'SET_MOTOR_CURRENT_LIMIT'))
+                               for cmd in bundled['commands'] if cmd['command'] in ('SAVE_CONFIGURATION', 'GET_CONFIGURATION_FIELD', 'GET_PWM_FREQUENCY', 'SET_PWM_FREQUENCY', 'SUBSCRIBE', 'SUBSCRIBE_WITH_MODE', 'SUBSCRIBE_CONFIGURED', 'UNSUBSCRIBE', 'TELEMETRY_EVENT', 'GET_MOTOR_CURRENT', 'GET_MOTOR_FAULTS', 'CLEAR_MOTOR_FAULTS', 'GET_MOTOR_CURRENT_LIMIT', 'SET_MOTOR_CURRENT_LIMIT'))
     return fixture
 
 
