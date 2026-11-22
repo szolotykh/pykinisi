@@ -816,8 +816,10 @@ class ImuTrackingStatus:
     flags: ImuTrackingFlag bitmask.
     reserved: Reserved; must be zero.
     sequence: Snapshot sequence; match vector reads.
-    timestamp_us: Monotonic joint accel/gyro sample watermark in board microseconds.
-    elapsed_us: Elapsed tracking time from the calibrated relative origin, in microseconds.
+    timestamp_us: Last eligible monotonic joint accel/gyro source watermark; no published
+    watermark reaches origin + window_us. Zero before the first estimate.
+    elapsed_us: Wall elapsed microseconds since the source origin, capped at window_us;
+    distinct from the retained source watermark. Frozen on fault or expiry; STOP clears it.
     accel_age_us: Accel age in microseconds; UINT32_MAX if unavailable.
     gyro_age_us: Gyro age in microseconds; UINT32_MAX if unavailable.
     """
@@ -884,7 +886,8 @@ class ImuTrackingConfiguration:
     """Volatile IMU-only relative tracking diagnostics.
 
     mounting_yaw_rad: Declared supported mounting yaw in radians.
-    window_us: Actual configured maximum relative tracking duration in microseconds.
+    window_us: Actual source tracking horizon in microseconds; 1000000 for this v0.4
+    release. Eligible source times are [origin, origin + window_us).
     """
 
     def __init__(self, mounting_yaw_rad: float, window_us: int):
@@ -2382,14 +2385,20 @@ class KinisiCommands:
         result = self._request(SET_IMU_TRACKING, payload, 0)
 
     def get_imu_tracking_status(self) -> ImuTrackingStatus:
-        """Read IMU-only tracking state, fault, flags, sequence, joint sample-watermark
-        timestamp, elapsed tracking time and separate accel/gyro ages in microseconds.
-        UINT32_MAX age means unavailable. ESTIMATE_VALID is required for usable current
-        estimates; timestamp and health are not physical accuracy guarantees. Reads can
-        enforce expiry but never start tracking. Status and vector sequences must match to
-        combine separate reads. Requires READY, exact model 1 hardware 0.4.0 with
-        imu_tracking capability and protocol 2.20+. Independent of platform, encoders and
-        fusion; never commands motion or changes control feedback.
+        """Read IMU-only tracking state, fault, flags, sequence, last eligible joint
+        sample-watermark timestamp, wall elapsed time since the source origin capped at
+        window_us and separate accel/gyro ages in microseconds. UINT32_MAX age means
+        unavailable. ESTIMATE_VALID is required for usable current estimates; timestamp and
+        health are not physical accuracy guarantees. A delayed in-window source sample may
+        remain readable briefly after the wall clock reaches the source end. Healthy
+        tracking expires upon the first consumed source watermark at or beyond the end, or
+        by the first serviced status/vector/configuration read at or after end + 50000 us.
+        Missing, stale or invalid input may fault earlier. This is a serviced-read
+        guarantee, not a hard real-time scheduling guarantee. Reads never start tracking.
+        Status and vector sequences must match to combine separate reads. Requires READY,
+        exact model 1 hardware 0.4.0 with imu_tracking capability and protocol 2.20+.
+        Independent of platform, encoders and fusion; never commands motion or changes
+        control feedback.
 
         Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
         SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
@@ -2426,12 +2435,15 @@ class KinisiCommands:
         return sample
 
     def get_imu_tracking_configuration(self) -> ImuTrackingConfiguration:
-        """Read mounting yaw and the actual bounded tracking horizon in microseconds. The
-        development horizon is provisional; use this readback rather than assuming a fixed
-        duration. Reset clears volatile tracking state; reconnect does not start or
-        re-anchor tracking. Requires READY, exact model 1 hardware 0.4.0 with imu_tracking
-        capability and protocol 2.20+. Independent of platform, encoders and fusion; never
-        commands motion or changes control feedback.
+        """Read mounting yaw and the actual bounded tracking horizon in microseconds. This v0.4
+        release reports 1000000 us for a one-second motion-onset diagnostic. Always use
+        readback for the connected board horizon. The eligible source interval is [origin,
+        origin + window_us); at 100 Hz it contains 100 source stamps including origin and
+        excluding the end. No estimate at or beyond the source end is published. Reset
+        clears volatile tracking state; reconnect does not start or re-anchor tracking.
+        Requires READY, exact model 1 hardware 0.4.0 with imu_tracking capability and
+        protocol 2.20+. Independent of platform, encoders and fusion; never commands motion
+        or changes control feedback.
 
         Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
         SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.

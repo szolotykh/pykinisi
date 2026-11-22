@@ -2722,7 +2722,7 @@
       "code": "0x64",
       "direction": "client_to_controller",
       "category": "IMU tracking",
-      "description": "Read IMU-only tracking state, fault, flags, sequence, joint sample-watermark timestamp, elapsed tracking time and separate accel/gyro ages in microseconds. UINT32_MAX age means unavailable. ESTIMATE_VALID is required for usable current estimates; timestamp and health are not physical accuracy guarantees. Reads can enforce expiry but never start tracking. Status and vector sequences must match to combine separate reads. Requires READY, exact model 1 hardware 0.4.0 with imu_tracking capability and protocol 2.20+. Independent of platform, encoders and fusion; never commands motion or changes control feedback.",
+      "description": "Read IMU-only tracking state, fault, flags, sequence, last eligible joint sample-watermark timestamp, wall elapsed time since the source origin capped at window_us and separate accel/gyro ages in microseconds. UINT32_MAX age means unavailable. ESTIMATE_VALID is required for usable current estimates; timestamp and health are not physical accuracy guarantees. A delayed in-window source sample may remain readable briefly after the wall clock reaches the source end. Healthy tracking expires upon the first consumed source watermark at or beyond the end, or by the first serviced status/vector/configuration read at or after end + 50000 us. Missing, stale or invalid input may fault earlier. This is a serviced-read guarantee, not a hard real-time scheduling guarantee. Reads never start tracking. Status and vector sequences must match to combine separate reads. Requires READY, exact model 1 hardware 0.4.0 with imu_tracking capability and protocol 2.20+. Independent of platform, encoders and fusion; never commands motion or changes control feedback.",
       "properties": [],
       "errors": [
         "INVALID_LENGTH",
@@ -2777,7 +2777,7 @@
       "code": "0x66",
       "direction": "client_to_controller",
       "category": "IMU tracking",
-      "description": "Read mounting yaw and the actual bounded tracking horizon in microseconds. The development horizon is provisional; use this readback rather than assuming a fixed duration. Reset clears volatile tracking state; reconnect does not start or re-anchor tracking. Requires READY, exact model 1 hardware 0.4.0 with imu_tracking capability and protocol 2.20+. Independent of platform, encoders and fusion; never commands motion or changes control feedback.",
+      "description": "Read mounting yaw and the actual bounded tracking horizon in microseconds. This v0.4 release reports 1000000 us for a one-second motion-onset diagnostic. Always use readback for the connected board horizon. The eligible source interval is [origin, origin + window_us); at 100 Hz it contains 100 source stamps including origin and excluding the end. No estimate at or beyond the source end is published. Reset clears volatile tracking state; reconnect does not start or re-anchor tracking. Requires READY, exact model 1 hardware 0.4.0 with imu_tracking capability and protocol 2.20+. Independent of platform, encoders and fusion; never commands motion or changes control feedback.",
       "properties": [],
       "errors": [
         "INVALID_LENGTH",
@@ -3450,12 +3450,12 @@
         {
           "name": "timestamp_us",
           "type": "uint64_t",
-          "description": "Monotonic joint accel/gyro sample watermark in board microseconds."
+          "description": "Last eligible monotonic joint accel/gyro source watermark; no published watermark reaches origin + window_us. Zero before the first estimate."
         },
         {
           "name": "elapsed_us",
           "type": "uint32_t",
-          "description": "Elapsed tracking time from the calibrated relative origin, in microseconds."
+          "description": "Wall elapsed microseconds since the source origin, capped at window_us; distinct from the retained source watermark. Frozen on fault or expiry; STOP clears it."
         },
         {
           "name": "accel_age_us",
@@ -3507,7 +3507,7 @@
         {
           "name": "window_us",
           "type": "uint32_t",
-          "description": "Actual configured maximum relative tracking duration in microseconds."
+          "description": "Actual source tracking horizon in microseconds; 1000000 for this v0.4 release. Eligible source times are [origin, origin + window_us)."
         }
       ]
     }

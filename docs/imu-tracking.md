@@ -8,8 +8,23 @@ unsupported; their existing commands continue to work.
 This estimator does not require encoders, platform initialization or fusion.
 It never sends motion targets, starts motor controllers, or selects feedback for
 control. It is not absolute localization, and accuracy is not physically qualified.
-The bounded horizon is provisional: read `GET_IMU_TRACKING_CONFIGURATION.window_us`
-for the actual configured limit rather than assuming a fixed duration.
+The motion-onset diagnostic covers a one-second source interval beginning at the
+first qualified source estimate. Read `GET_IMU_TRACKING_CONFIGURATION.window_us`
+for the connected board horizon; this v0.4 release returns 1,000,000 microseconds.
+The interval is `[origin, origin + H)`: include origin and exclude the end. At
+100 Hz, it contains 100 eligible source stamps. No estimate with a source watermark
+at or beyond the end is published.
+
+A delayed in-window sample may remain readable after the wall clock reaches the
+source end. If tracking remains healthy, it becomes EXPIRED when the first source
+watermark at or beyond the end is consumed, or by the first serviced status,
+vector or configuration read at or after `end + 50,000 microseconds`. Missing,
+stale or invalid source data may fault earlier. This guarantees observable expiry
+on a serviced read; it does not guarantee hard real-time task or transport timing.
+Status retains the last eligible joint watermark. `elapsed_us` is wall elapsed
+time since the source origin, capped at H, and is distinct from that watermark.
+It freezes on fault or expiry; STOP clears it.
+Another window requires a deliberate stationary restart.
 
 ## Deliberate stationary origin
 
