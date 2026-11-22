@@ -14,6 +14,50 @@ class DriverSleepTests(unittest.TestCase):
     def connect(self, **kwargs):
         return test_sensors.SensorSessionTests.connect(self, **kwargs)
 
+    def test_revision_specific_protocol_gate_and_nano_roundtrip(self):
+        cases = ((3, 0, 16, False), (3, 1, 15, False), (3, 1, 16, False),
+                 (3, 0, 17, True), (3, 1, 17, True), (3, 1, 18, True),
+                 (3, 2, 17, False), (4, 1, 17, False), (99, 0, 17, False),
+                 (1, 0, 17, False), (2, 0, 17, False), (4, 0, 15, True))
+        for minor, patch, protocol, supported in cases:
+            with self.subTest(minor=minor, patch=patch, protocol=protocol):
+                client, transport, board = self.connect(minor=minor, board_patch=patch, protocol=protocol)
+                self.assertEqual(client.supports_driver_sleep(), supported)
+                before = len(transport.frames)
+                if not supported:
+                    with self.assertRaises(ProtocolError): client.set_driver_sleep(1)
+                    with self.assertRaises(ProtocolError): client.get_driver_sleep()
+                    self.assertEqual(len(transport.frames), before)
+                    client.disconnect()
+                    continue
+                state = {'sleeping': 0}
+                def respond(command, mid, payload):
+                    if command == SET_DRIVER_SLEEP:
+                        state['sleeping'] = payload[0]
+                    transport.inject(frame(command, mid, bytes([state['sleeping']]) if command == GET_DRIVER_SLEEP else b''))
+                board.command_hook = respond
+                for sleeping in (1, 1, 0, 0):
+                    self.assertIsNone(client.set_driver_sleep(sleeping))
+                    self.assertEqual(client.get_driver_sleep(), sleeping)
+                self.assertEqual([raw[1] for raw in transport.frames[before:]], [SET_DRIVER_SLEEP, GET_DRIVER_SLEEP] * 4)
+                if minor == 3:
+                    self.assertFalse(client.supports_board_idle())
+                client.board_info.protocol_major = 3
+                before = len(transport.frames)
+                self.assertFalse(client.supports_driver_sleep())
+                with self.assertRaises(ProtocolError): client.set_driver_sleep(0)
+                self.assertEqual(len(transport.frames), before)
+                client.disconnect()
+
+    def test_superseded_nano_wake_preserves_device_error(self):
+        client, transport, board = self.connect(minor=3, board_patch=1, protocol=17)
+        board.command_hook = lambda command, mid, payload: transport.inject(
+            frame(ERROR, mid, bytes([command, ErrorCode.DRIVERS_ASLEEP])))
+        with self.assertRaises(ControllerError) as error:
+            client.set_driver_sleep(0)
+        self.assertEqual(error.exception.error_code, ErrorCode.DRIVERS_ASLEEP)
+        self.assertTrue(client.ready)
+
     def test_codec_rejects_invalid_input_and_reply(self):
         client = recording_client({'KinisiCommands': KinisiCommands})
         client.reply = b''

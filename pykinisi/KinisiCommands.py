@@ -9,7 +9,7 @@ import struct
 from enum import IntEnum
 
 
-PROTOCOL_VERSION = (2, 16, 0)
+PROTOCOL_VERSION = (2, 17, 0)
 
 GET_TEMPERATURE = 0x50
 GET_IMU = 0x51
@@ -1887,17 +1887,17 @@ class KinisiCommands:
         return _unpack_payload('<d', result)[0]
 
     def set_driver_sleep(self, sleeping: int) -> None:
-        """Explicitly inhibit or wake the board's motor drivers. Entry stops motion and
-        controllers across all connections. Wake verifies the retained settings for
-        previously initialized channels and leaves outputs stopped. A failed wake keeps the
-        inhibit set and permits retry. Repeating a confirmed state is a no-op. After a
-        failed sleep entry, repeat sleep to retry pin verification. Requires a ready
-        connection, protocol 2.15 and a board profile with driver sleep.
+        """Set the board-wide motor inhibit. Entry stops all controllers and blocks new motion.
+        On v0.3 and Nano (protocol 2.17), entry holds each DRV8870 input pair low. Release
+        keeps the inputs low until a fresh drive or explicit short brake. On v0.4 (protocol
+        2.15+), wake verifies retained settings for initialized drivers and leaves outputs
+        stopped. Failed transitions retain the inhibit for explicit retry. Requires READY
+        and a profile supporting driver sleep.
 
         sleeping: 1 to request driver sleep or 0 to wake.
 
-        Controller errors: BOARD_IDLE, INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED,
-        CLOCK_NOT_READY, SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
+        Controller errors: DRIVERS_ASLEEP, BOARD_IDLE, INVALID_LENGTH, INVALID_ARGUMENT,
+        INIT_REQUIRED, CLOCK_NOT_READY, SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
         """
         if type(sleeping) is not int or sleeping not in (0, 1):
             raise ValueError('sleeping must be integer 0 or 1')
@@ -1905,10 +1905,9 @@ class KinisiCommands:
         result = self._request(SET_DRIVER_SLEEP, payload, 0)
 
     def get_driver_sleep(self) -> int:
-        """Read the board-wide driver sleep inhibit. The value persists across connections and
-        clears at boot. Uninitialized individual drivers may be asleep even when the inhibit
-        is clear. Requires a ready connection, protocol 2.15 and a board profile with driver
-        sleep.
+        """Read the software motor inhibit across connections. It clears at boot. A zero
+        permits commands and does not establish that each chip is awake. Requires READY and
+        driver sleep support (v0.4 since protocol 2.15, original v0.3 and Nano since 2.17).
 
         Controller errors: INVALID_LENGTH, INIT_REQUIRED, CLOCK_NOT_READY,
         SENSOR_NOT_AVAILABLE.

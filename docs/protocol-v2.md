@@ -333,25 +333,40 @@ across the next restart.
 
 ## Motor-driver sleep
 
-`supports_driver_sleep()` requires a READY session, protocol 2.15 or later in
-major version 2, and a known board profile with `power.driver_sleep` enabled
-(currently v0.4.0). Both sleep commands reject unsupported sessions before I/O.
+`supports_driver_sleep()` requires READY, protocol major version 2, and an exact
+known board profile with `power.driver_sleep` enabled. Original v0.3.0 and Nano
+(hardware v0.3.1) require protocol 2.17 or later; v0.4.0 requires 2.15 or later.
+Both commands reject unsupported sessions before I/O, including unknown patch
+revisions. Nano's product name does not change its wire identity: model 1, 0.3.1.
 
 ```python
 if controller.supports_driver_sleep():
     controller.set_driver_sleep(1)  # Wait for the board's ACK.
     sleeping = controller.get_driver_sleep()  # Integer 0 or 1.
-    controller.set_driver_sleep(0)  # Explicit wake; wait for verified ACK.
+    controller.set_driver_sleep(0)  # Explicitly release inhibit; wait for ACK.
 ```
 
 The setter accepts integer 0 or 1. Sleep stops and coasts all motors, cancels
 active control, and inhibits new drive requests while communication remains
 available. `get_driver_sleep()` reads the board-wide inhibit shared by all
 clients; zero does not imply that every individual motor is initialized.
+On v0.3/Nano, sleep holds both DRV8870 inputs low. Releasing the software
+inhibit keeps those inputs low until a fresh nonzero drive request or deliberate
+brake, so a zero readback does not establish that the chips are physically awake.
+After confirmed inhibit release, a fresh `brake_motor()` or `brake_platform()`
+request is valid without a preceding drive request, subject to the command's
+normal initialization requirements. Ordinary short brake drives both inputs
+high; stop/coast leaves both low. Brake requests made while inhibited, or stale
+requests from before the inhibit transition, are rejected.
+These boards have no SPI wake verification, current telemetry, fault readback,
+or board-idle support.
+On v0.4, wake verifies retained settings for initialized drivers.
 Wake leaves outputs stopped. Initialize or start closed-loop control again
 before issuing new targets. Prohibited operations raise `ControllerError` with
 `ErrorCode.DRIVERS_ASLEEP` (19). A failed wake raises a device error and leaves
 the inhibit set; correct the cause and explicitly retry.
+A stale wake superseded by a newer sleep also raises `DRIVERS_ASLEEP`; read the
+current inhibit and explicitly retry only if release is still wanted.
 
 Sleep is volatile and is not saved to FRAM. Reconnecting preserves its current
 state and sends no automatic sleep or wake command. Reset clears the inhibit

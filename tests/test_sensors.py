@@ -94,10 +94,10 @@ class SensorSessionTests(unittest.TestCase):
             self.assertEqual(len(transport.frames), count)
             client.disconnect()
 
-    def connect(self, minor=4, protocol=5, client=None):
+    def connect(self, minor=4, protocol=5, client=None, board_patch=0):
         transport = FakeSerial()
         board = Board(transport)
-        board.identity = (1, 0, minor, 0)
+        board.identity = (1, 0, minor, board_patch)
         board.protocol = (2, protocol, 0)
         client = client or KinisiController(request_timeout=0.25, init_timeout=0.5, heartbeat_timeout_ms=None)
         self.addCleanup(client.disconnect)

@@ -198,12 +198,16 @@ class KinisiController(KinisiCommands):
                     info.protocol_major == 2 and info.protocol_minor >= 14)
 
     def supports_driver_sleep(self):
-        """Require READY, a known sleep-capable board and protocol 2.15+."""
+        """Require READY and the minimum protocol for the exact supported board."""
         with self._lock:
             info = self.board_info
-            return (self.ready and info is not None and self.board_profile is not None and
-                    self.board_profile.get('power', {}).get('driver_sleep') is True and
-                    info.protocol_major == 2 and info.protocol_minor >= 15)
+            profile = self.board_profile
+            if not self.ready or info is None or profile is None or info.protocol_major != 2:
+                return False
+            identity = (info.board_model, info.board_major, info.board_minor, info.board_patch)
+            minimum = {(1, 0, 3, 0): 17, (1, 0, 3, 1): 17, (1, 0, 4, 0): 15}.get(identity)
+            return (minimum is not None and profile.get('power', {}).get('driver_sleep') is True and
+                    info.protocol_minor >= minimum)
 
     def supports_board_idle(self):
         """Require READY, an exact idle-capable board and protocol 2.16+."""
@@ -453,7 +457,7 @@ class KinisiController(KinisiCommands):
             if command in (SAVE_CONFIGURATION, GET_CONFIGURATION_FIELD) and not self.supports_configuration_save():
                 raise ProtocolError('Configuration storage requires a ready v0.4 controller running protocol 2.14 or newer')
             if command in (SET_DRIVER_SLEEP, GET_DRIVER_SLEEP) and not self.supports_driver_sleep():
-                raise ProtocolError('Driver sleep requires a ready sleep-capable board running protocol 2.15 or newer')
+                raise ProtocolError('Driver sleep requires READY and a supported board: v0.3/Nano protocol 2.17+, v0.4 protocol 2.15+')
             if command in (SET_BOARD_IDLE, GET_BOARD_IDLE) and not self.supports_board_idle():
                 raise ProtocolError('Board idle requires a ready idle-capable board running protocol 2.16 or newer')
             if command in (GET_PWM_FREQUENCY, SET_PWM_FREQUENCY):

@@ -43,6 +43,16 @@ class BoardProfileTests(unittest.TestCase):
             self.assertFalse(supports_board_sensor(identity(minor), 'temperature'))
             self.assertFalse(has_board_sensor(identity(minor), 'imu'))
 
+    def test_nano_is_an_exact_distinct_profile(self):
+        nano = get_board_profile(identity(3, board_patch=1))
+        original = get_board_profile(identity(3))
+        self.assertIsNot(nano, original)
+        self.assertEqual(nano['board']['revision'], '0.3.1')
+        self.assertTrue(nano['power']['driver_sleep'])
+        self.assertFalse(nano['power']['board_idle'])
+        self.assertEqual(nano['resources'], original['resources'])
+        self.assertIsNone(get_board_profile(identity(3, board_patch=2)))
+
     def test_unknown_or_malformed_identity_has_no_fallback(self):
         for info in (None, {}, identity(99), identity(board_patch=1), identity(board_model=2),
                      identity(board_minor='4'), identity(board_patch=True), identity(board_minor=-1)):
@@ -73,7 +83,7 @@ class ProfileUpdaterTests(unittest.TestCase):
     def test_bundled_output_is_deterministic_and_public(self):
         self.assertEqual(self.updater.generate(self.bundle),
                          (ROOT / 'pykinisi/board_profiles.json').read_text(encoding='utf-8'))
-        self.assertEqual(len(self.bundle['boards']), 4)
+        self.assertEqual(len(self.bundle['boards']), 5)
         private_fields = {'pin', 'bus', 'timer', 'address', 'mcu', 'build_define', 'control_model'}
 
         def inspect(value):
@@ -95,11 +105,11 @@ class ProfileUpdaterTests(unittest.TestCase):
             lambda b: b['boards'].append(deepcopy(b['boards'][0])),
             lambda b: b['boards'][0]['board'].update(build_define='MP_V1'),
             lambda b: b['boards'][0]['resources'].update(motors=True),
-            lambda b: b['boards'][3]['power'].update(driver_sleep=1),
-            lambda b: b['boards'][3]['power'].update(board_idle=1),
-            lambda b: b['boards'][3]['power'].update(sleep_pin='PB0'),
-            lambda b: b['boards'][3]['sensors']['imu'][0].update(id=1),
-            lambda b: b['boards'][3]['motor_features'][0].update(current_limit='yes'),
+            lambda b: b['boards'][4]['power'].update(driver_sleep=1),
+            lambda b: b['boards'][4]['power'].update(board_idle=1),
+            lambda b: b['boards'][4]['power'].update(sleep_pin='PB0'),
+            lambda b: b['boards'][4]['sensors']['imu'][0].update(id=1),
+            lambda b: b['boards'][4]['motor_features'][0].update(current_limit='yes'),
         ):
             bundle = deepcopy(self.bundle)
             mutate(bundle)
