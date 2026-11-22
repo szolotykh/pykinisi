@@ -1,5 +1,5 @@
 {
-  "version": "2.14.0",
+  "version": "2.15.0",
   "commands": [
     {
       "command": "GET_TEMPERATURE",
@@ -143,6 +143,7 @@
       ],
       "category": "Motor",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
@@ -177,6 +178,7 @@
       ],
       "category": "Motor",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
@@ -227,6 +229,7 @@
       ],
       "category": "Motor",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
@@ -301,6 +304,7 @@
       ],
       "category": "Motor Controller",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
@@ -331,6 +335,7 @@
       ],
       "category": "Motor Controller",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
@@ -890,6 +895,7 @@
       ],
       "category": "Platform",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
@@ -959,6 +965,7 @@
       ],
       "category": "Platform",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
@@ -1016,6 +1023,7 @@
       ],
       "category": "Platform",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
@@ -1058,6 +1066,7 @@
       ],
       "category": "Platform",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
@@ -1098,6 +1107,7 @@
       ],
       "category": "Platform",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
@@ -1130,6 +1140,7 @@
       ],
       "category": "Platform",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
@@ -1240,6 +1251,7 @@
       "description": "Stops the platform velocity and position controllers and applies a short brake to this platform's wheel motors using the selected board's motor control model. Other motors are not affected. The brake resists motion until a new command is issued; it does not regulate or hold a specific position. Call START_PLATFORM_CONTROLLER again to resume closed-loop platform control.",
       "category": "Platform",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR"
@@ -1695,6 +1707,7 @@
       ],
       "category": "Motor position",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
@@ -1752,6 +1765,7 @@
       ],
       "category": "Motor position",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
@@ -1831,6 +1845,7 @@
       ],
       "category": "Platform position",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
@@ -1880,6 +1895,7 @@
       ],
       "category": "Platform position",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
@@ -1938,6 +1954,7 @@
       ],
       "category": "Motor position",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
@@ -2015,6 +2032,7 @@
       ],
       "category": "Platform position",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
@@ -2178,6 +2196,7 @@
       ],
       "category": "Motor",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INIT_REQUIRED",
@@ -2212,6 +2231,7 @@
       ],
       "category": "Motor",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INIT_REQUIRED",
@@ -2259,6 +2279,7 @@
       ],
       "category": "Motor",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INIT_REQUIRED",
@@ -2433,6 +2454,52 @@
         "type": "double",
         "direction": "controller_to_client",
         "description": "Current field value in the units of the corresponding initialization command. Boolean flags are returned as zero or one."
+      }
+    },
+    {
+      "command": "SET_DRIVER_SLEEP",
+      "code": "0x5B",
+      "direction": "client_to_controller",
+      "category": "Motor",
+      "description": "Explicitly inhibit or wake the board's motor drivers. Entry stops motion and controllers across all connections. Wake verifies the retained settings for previously initialized channels and leaves outputs stopped. A failed wake keeps the inhibit set and permits retry. Repeating a confirmed state is a no-op. After a failed sleep entry, repeat sleep to retry pin verification. Requires a ready connection, protocol 2.15 and a board profile with driver sleep.",
+      "properties": [
+        {
+          "name": "sleeping",
+          "type": "uint8_t",
+          "range": [
+            0,
+            1
+          ],
+          "description": "1 to request driver sleep or 0 to wake."
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR"
+      ]
+    },
+    {
+      "command": "GET_DRIVER_SLEEP",
+      "code": "0x5C",
+      "direction": "client_to_controller",
+      "category": "Motor",
+      "description": "Read the board-wide driver sleep inhibit. The value persists across connections and clears at boot. Uninitialized individual drivers may be asleep even when the inhibit is clear. Requires a ready connection, protocol 2.15 and a board profile with driver sleep.",
+      "properties": [],
+      "errors": [
+        "INVALID_LENGTH",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE"
+      ],
+      "response": {
+        "name": "sleeping",
+        "type": "uint8_t",
+        "direction": "controller_to_client",
+        "description": "1 when driver sleep is requested or 0 when motor commands are permitted."
       }
     }
   ],
@@ -3074,6 +3141,11 @@
       "code": 18,
       "name": "SAMPLE_OUT_OF_RANGE",
       "description": "The sensor reading is saturated; no valid measurement can be returned."
+    },
+    {
+      "code": 19,
+      "name": "DRIVERS_ASLEEP",
+      "description": "Driver sleep is active. Explicitly wake the drivers before requesting this operation."
     }
   ],
   "topics": [

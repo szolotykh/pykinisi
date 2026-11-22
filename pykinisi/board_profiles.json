@@ -6,6 +6,9 @@
         "model": 1,
         "revision": "0.1.0"
       },
+      "power": {
+        "driver_sleep": false
+      },
       "resources": {
         "motors": 4,
         "encoders": 1,
@@ -57,6 +60,9 @@
       "board": {
         "model": 1,
         "revision": "0.2.0"
+      },
+      "power": {
+        "driver_sleep": false
       },
       "resources": {
         "motors": 4,
@@ -110,6 +116,9 @@
         "model": 1,
         "revision": "0.3.0"
       },
+      "power": {
+        "driver_sleep": false
+      },
       "resources": {
         "motors": 4,
         "encoders": 4,
@@ -161,6 +170,9 @@
       "board": {
         "model": 1,
         "revision": "0.4.0"
+      },
+      "power": {
+        "driver_sleep": true
       },
       "resources": {
         "motors": 4,

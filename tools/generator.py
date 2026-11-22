@@ -25,6 +25,7 @@ type_mapping = {name: "bool" if name == "bool" else "float" if name == "double" 
 DIRECTIONS = {"client_to_controller", "controller_to_client"}
 # These messages support handwritten session behavior, independently of schema version.
 SESSION_COMMANDS = {
+    "SET_DRIVER_SLEEP", "GET_DRIVER_SLEEP",
     "SAVE_CONFIGURATION", "GET_CONFIGURATION_FIELD",
     "PING", "SET_HEARTBEAT_CONFIG", "SUBSCRIBE_ODOMETRY", "UNSUBSCRIBE_ODOMETRY",
     "ENCODER_ODOMETRY_EVENT", "PLATFORM_ODOMETRY_EVENT",
@@ -258,6 +259,8 @@ def _generate_method(cmd, objects):
         result += "            raise ValueError('motor_index must be an integer from 0 to 3')\n"
     if cmd['command'] == 'SET_PWM_FREQUENCY':
         result += "        if isinstance(frequency_hz, bool) or not isinstance(frequency_hz, int) or frequency_hz not in tuple(PwmFrequency):\n            raise ValueError('Invalid PWM frequency')\n"
+    if cmd['command'] == 'SET_DRIVER_SLEEP':
+        result += "        if type(sleeping) is not int or sleeping not in (0, 1):\n            raise ValueError('sleeping must be integer 0 or 1')\n"
     if cmd['command'] == 'SET_MOTOR_CURRENT_LIMIT':
         result += "        if type(enabled) is not bool or type(threshold_ma) is not int or not 1 <= threshold_ma <= 65535:\n"
         result += "            raise ValueError('Expected enabled boolean and threshold_ma integer from 1 to 65535')\n"
@@ -291,6 +294,10 @@ def _generate_method(cmd, objects):
         result += "        if not math.isfinite(amps) or amps < 0:\n"
         result += "            raise ValueError('Invalid motor current payload')\n"
         result += "        return amps\n"
+    elif cmd['command'] == 'GET_DRIVER_SLEEP':
+        result += "        sleeping = _unpack_payload('<B', result)[0]\n"
+        result += "        if sleeping not in (0, 1):\n            raise ValueError('Invalid driver sleep state')\n"
+        result += "        return sleeping\n"
     elif obj:
         result += f"        return {get_object_name(obj)}.decode(result)\n"
     elif response:

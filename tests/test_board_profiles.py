@@ -95,6 +95,8 @@ class ProfileUpdaterTests(unittest.TestCase):
             lambda b: b['boards'].append(deepcopy(b['boards'][0])),
             lambda b: b['boards'][0]['board'].update(build_define='MP_V1'),
             lambda b: b['boards'][0]['resources'].update(motors=True),
+            lambda b: b['boards'][3]['power'].update(driver_sleep=1),
+            lambda b: b['boards'][3]['power'].update(sleep_pin='PB0'),
             lambda b: b['boards'][3]['sensors']['imu'][0].update(id=1),
             lambda b: b['boards'][3]['motor_features'][0].update(current_limit='yes'),
         ):
