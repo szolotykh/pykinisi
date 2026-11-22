@@ -6,6 +6,9 @@
         "model": 1,
         "revision": "0.1.0"
       },
+      "capabilities": {
+        "fusion_experiment": false
+      },
       "power": {
         "driver_sleep": false,
         "board_idle": false
@@ -61,6 +64,9 @@
       "board": {
         "model": 1,
         "revision": "0.2.0"
+      },
+      "capabilities": {
+        "fusion_experiment": false
       },
       "power": {
         "driver_sleep": false,
@@ -118,6 +124,9 @@
         "model": 1,
         "revision": "0.3.0"
       },
+      "capabilities": {
+        "fusion_experiment": false
+      },
       "power": {
         "driver_sleep": true,
         "board_idle": true
@@ -174,6 +183,9 @@
         "model": 1,
         "revision": "0.3.1"
       },
+      "capabilities": {
+        "fusion_experiment": false
+      },
       "power": {
         "driver_sleep": true,
         "board_idle": true
@@ -229,6 +241,9 @@
       "board": {
         "model": 1,
         "revision": "0.4.0"
+      },
+      "capabilities": {
+        "fusion_experiment": true
       },
       "power": {
         "driver_sleep": true,

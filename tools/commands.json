@@ -1,5 +1,5 @@
 {
-  "version": "2.18.0",
+  "version": "2.19.0",
   "commands": [
     {
       "command": "GET_TEMPERATURE",
@@ -1120,7 +1120,7 @@
       "command": "SET_PLATFORM_TARGET_VELOCITY",
       "code": "0x42",
       "direction": "client_to_controller",
-      "description": "This command set the target velocity for the platform in meters per second. Cancels platform position control; initialize it again before another pose target.",
+      "description": "This command set the target velocity for the platform in meters per second. Cancels platform position control; initialize it again before another pose target. With an active fusion experiment, rejects invalid or stale feedback and targets fenced by an earlier fault with SAMPLE_NOT_AVAILABLE; both experimental modes require 100 ms of observed unchanged configured counters for initial rest arming. Once armed, ordinary target updates remain accepted while moving. Wait for healthy feedback and submit a fresh target; stopped cold configuration can ACK while still WAITING.",
       "properties": [
         {
           "name": "x",
@@ -1146,7 +1146,8 @@
         "INTERNAL_ERROR",
         "PLATFORM_NOT_INITIALIZED",
         "CONTROLLER_NOT_INITIALIZED",
-        "INIT_REQUIRED"
+        "INIT_REQUIRED",
+        "SAMPLE_NOT_AVAILABLE"
       ]
     },
     {
@@ -2554,6 +2555,121 @@
         "direction": "controller_to_client",
         "description": "1 while the board idle request is active, otherwise 0."
       }
+    },
+    {
+      "command": "SET_FUSION_EXPERIMENT",
+      "code": "0x5f",
+      "direction": "client_to_controller",
+      "category": "Fusion experiment",
+      "description": "Configure the volatile v0.4 experiment only while motion is stopped and all commanded targets and motor outputs are zero; initialized controllers with idle zero targets are allowed. Mode 0 retains the legacy encoder path (boot default), 1 uses encoder feedback with the common chassis correction, and 2 uses fused feedback with that same correction. No IMU-only mode. For modes 1/2 the caller declares a rigid, level board with component side up, IMU at the chassis reference point, and mounting_yaw_rad as the angle of board +X expressed in chassis XY, counterclockwise about chassis +Z. Sensor-to-board axes are (-x,-y,+z); chassis axes are forward/left/up. Reject nonfinite or out-of-range yaw, any observed configured encoder movement in the preceding 100 ms, or a counter change since a fresh sample. Stopped cold setup may ACK in WAITING; ACK does not establish readiness. Both experimental modes require 100 ms of observed unchanged configured counters for initial rest arming before accepting a motion target; once armed, ordinary target updates remain accepted while moving; fused bias calibration may run within that window. Reconfiguration cancels old targets. Sources may requalify automatically after an ordinary sensor fault, but healthy inputs and a fresh target are required before control resumes. Does not save to FRAM or start motion. Requires READY, exact v0.4.0 fusion capability and protocol 2.19.",
+      "properties": [
+        {
+          "name": "mode",
+          "type": "uint8_t",
+          "description": "FusionMode value.",
+          "range": [
+            0,
+            2
+          ]
+        },
+        {
+          "name": "mounting_yaw_rad",
+          "type": "double",
+          "description": "Declared level centered mounting yaw in radians.",
+          "range": [
+            -3.141592653589793,
+            3.141592653589793
+          ]
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR",
+        "BOARD_IDLE",
+        "DRIVERS_ASLEEP",
+        "PLATFORM_NOT_INITIALIZED"
+      ]
+    },
+    {
+      "command": "GET_FUSION_STATUS",
+      "code": "0x60",
+      "direction": "client_to_controller",
+      "category": "Fusion experiment",
+      "description": "Read experiment mode, health, fault, flags and timestamped sample ages without setting targets or changing configuration. A read may enforce an expired feedback deadline, clear the live target and coast. Health/fault/flag values use the FusionHealth/FusionFault/FusionFlag catalogs. Timestamp uses the monotonic board clock; unavailable ages are UINT32_MAX. The physical IMU producer waits 2 ms between passes, without guaranteeing a 2 ms acquisition cadence, and pairs only acquisition windows entirely preceding the encoder timestamp: each window is at most 5 ms wide, worst-case accel/gyro skew at most 15 ms, and age at most 35 ms. These are software acceptance limits, not a physical timing qualification. ESTIMATE_VALID describes the selected experiment estimate, not physical accuracy. Requires READY, exact v0.4.0 fusion capability and protocol 2.19.",
+      "properties": [],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR"
+      ],
+      "response": {
+        "name": "fusion_status",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Packed little-endian diagnostic snapshot."
+      }
+    },
+    {
+      "command": "GET_FUSION_VECTOR",
+      "code": "0x61",
+      "direction": "client_to_controller",
+      "category": "Fusion experiment",
+      "description": "Read one compact experiment vector: 0 encoder pose (relative x,y,yaw), 1 encoder body twist (vx,vy,yaw rate), 2 fused pose, 3 fused body twist, 4 estimated bias (ax,ay,gyro z). Units are metres, seconds and radians. On outage recovery, the last fused-from-encoder world transform is reapplied to the current encoder pose. Returns SAMPLE_NOT_AVAILABLE when the requested estimate is invalid. Match sequence with GET_FUSION_STATUS to associate timestamp/health; different sequences are different snapshots. At most 28 payload bytes so the framed reply fits Arduino Wire32. Does not reset state or start motion. Requires READY, exact v0.4.0 fusion capability and protocol 2.19.",
+      "properties": [
+        {
+          "name": "kind",
+          "type": "uint8_t",
+          "description": "FusionVectorKind value.",
+          "range": [
+            0,
+            4
+          ]
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR",
+        "SAMPLE_NOT_AVAILABLE"
+      ],
+      "response": {
+        "name": "fusion_vector",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Packed little-endian diagnostic snapshot."
+      }
+    },
+    {
+      "command": "GET_FUSION_CONFIGURATION",
+      "code": "0x62",
+      "direction": "client_to_controller",
+      "category": "Fusion experiment",
+      "description": "Read the volatile experiment mode and declared mounting yaw without changing state. Reset selects legacy encoder mode; SAVE_CONFIGURATION does not persist this experiment. Requires READY, exact v0.4.0 fusion capability and protocol 2.19.",
+      "properties": [],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR"
+      ],
+      "response": {
+        "name": "fusion_configuration",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Packed little-endian diagnostic snapshot."
+      }
     }
   ],
   "objects": [
@@ -3085,6 +3201,99 @@
           "description": "Nominal threshold in milliamps."
         }
       ]
+    },
+    {
+      "name": "fusion_status",
+      "description": "Volatile v0.4 fusion experiment diagnostics; see command descriptions.",
+      "properties": [
+        {
+          "name": "mode",
+          "type": "uint8_t",
+          "description": "Selected fusion_modes value."
+        },
+        {
+          "name": "health",
+          "type": "uint8_t",
+          "description": "Current fusion_health value."
+        },
+        {
+          "name": "fault",
+          "type": "uint8_t",
+          "description": "Current fusion_faults reason, or NONE."
+        },
+        {
+          "name": "flags",
+          "type": "uint8_t",
+          "description": "Bitmask of fusion_flags; ESTIMATE_VALID is required before using estimates."
+        },
+        {
+          "name": "sequence",
+          "type": "uint32_t",
+          "description": "Snapshot sequence; compare with each vector before associating this status."
+        },
+        {
+          "name": "timestamp_us",
+          "type": "uint64_t",
+          "description": "Monotonic board microseconds of this estimate snapshot; not wall time."
+        },
+        {
+          "name": "accel_age_us",
+          "type": "uint32_t",
+          "description": "UINT32_MAX means unavailable."
+        },
+        {
+          "name": "gyro_age_us",
+          "type": "uint32_t",
+          "description": "UINT32_MAX means unavailable."
+        },
+        {
+          "name": "encoder_age_us",
+          "type": "uint32_t",
+          "description": "UINT32_MAX means unavailable."
+        }
+      ]
+    },
+    {
+      "name": "fusion_vector",
+      "description": "Volatile v0.4 fusion experiment diagnostics; see command descriptions.",
+      "properties": [
+        {
+          "name": "sequence",
+          "type": "uint32_t",
+          "description": "Match GET_FUSION_STATUS sequence before associating its timestamp or health."
+        },
+        {
+          "name": "x",
+          "type": "double",
+          "description": "Pose X in metres, twist X in metres per second, or X accelerometer bias in metres per second squared, selected by kind."
+        },
+        {
+          "name": "y",
+          "type": "double",
+          "description": "Pose Y in metres, twist Y in metres per second, or Y accelerometer bias in metres per second squared, selected by kind."
+        },
+        {
+          "name": "z",
+          "type": "double",
+          "description": "Pose yaw in radians, twist yaw rate in radians per second, or Z gyro bias in radians per second, selected by kind."
+        }
+      ]
+    },
+    {
+      "name": "fusion_configuration",
+      "description": "Volatile v0.4 fusion experiment diagnostics; see command descriptions.",
+      "properties": [
+        {
+          "name": "mode",
+          "type": "uint8_t",
+          "description": "Selected fusion_modes value; boot default is LEGACY_ENCODER."
+        },
+        {
+          "name": "mounting_yaw_rad",
+          "type": "double",
+          "description": "Angle of board +X in the chassis XY plane, counterclockwise about chassis +Z; finite radians in [-pi, pi]."
+        }
+      ]
     }
   ],
   "header": {
@@ -3317,6 +3526,120 @@
       "id": 100000,
       "name": "KHZ_100",
       "description": "100 kHz"
+    }
+  ],
+  "fusion_modes": [
+    {
+      "id": 0,
+      "name": "LEGACY_ENCODER"
+    },
+    {
+      "id": 1,
+      "name": "ENCODER_CORRECTION"
+    },
+    {
+      "id": 2,
+      "name": "FUSED"
+    }
+  ],
+  "fusion_health": [
+    {
+      "id": 0,
+      "name": "DISABLED"
+    },
+    {
+      "id": 1,
+      "name": "WAITING"
+    },
+    {
+      "id": 2,
+      "name": "HEALTHY"
+    },
+    {
+      "id": 3,
+      "name": "FAULT"
+    }
+  ],
+  "fusion_faults": [
+    {
+      "id": 0,
+      "name": "NONE"
+    },
+    {
+      "id": 1,
+      "name": "MOUNT_INVALID"
+    },
+    {
+      "id": 2,
+      "name": "ENCODER_UNAVAILABLE"
+    },
+    {
+      "id": 3,
+      "name": "IMU_UNAVAILABLE"
+    },
+    {
+      "id": 4,
+      "name": "STALE"
+    },
+    {
+      "id": 5,
+      "name": "TIMESTAMP"
+    },
+    {
+      "id": 6,
+      "name": "SATURATION"
+    },
+    {
+      "id": 7,
+      "name": "BIAS_NOT_READY"
+    },
+    {
+      "id": 8,
+      "name": "DISCONTINUITY"
+    },
+    {
+      "id": 9,
+      "name": "INHIBITED"
+    }
+  ],
+  "fusion_flags": [
+    {
+      "id": 1,
+      "name": "ESTIMATE_VALID"
+    },
+    {
+      "id": 2,
+      "name": "BIAS_READY"
+    },
+    {
+      "id": 4,
+      "name": "FRESH_TARGET_REQUIRED"
+    },
+    {
+      "id": 8,
+      "name": "CORRECTION_ACTIVE"
+    }
+  ],
+  "fusion_vectors": [
+    {
+      "id": 0,
+      "name": "ENCODER_POSE"
+    },
+    {
+      "id": 1,
+      "name": "ENCODER_TWIST"
+    },
+    {
+      "id": 2,
+      "name": "FUSED_POSE"
+    },
+    {
+      "id": 3,
+      "name": "FUSED_TWIST"
+    },
+    {
+      "id": 4,
+      "name": "BIAS"
     }
   ]
 }

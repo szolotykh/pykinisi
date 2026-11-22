@@ -31,7 +31,11 @@ def validate(bundle):
     for profile in bundle['boards']:
         fields(profile, ('board', 'resources', 'motor_features', 'sensors') +
                (('pwm_frequency',) if 'pwm_frequency' in profile else ()) +
-               (('power',) if 'power' in profile else ()), 'board profile')
+               (('power',) if 'power' in profile else ()) +
+               (('capabilities',) if 'capabilities' in profile else ()), 'board profile')
+        if 'capabilities' in profile:
+            fields(profile['capabilities'], ('fusion_experiment',), 'capabilities')
+            require(type(profile['capabilities']['fusion_experiment']) is bool, 'Invalid fusion capability')
         if 'power' in profile:
             fields(profile['power'], ('driver_sleep',) + (('board_idle',) if 'board_idle' in profile['power'] else ()), 'power capabilities')
             require(type(profile['power']['driver_sleep']) is bool, 'Invalid driver sleep capability')

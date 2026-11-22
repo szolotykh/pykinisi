@@ -417,3 +417,9 @@ a fresh measurement has arrived. Track sample timestamps in their clock domain
 and wait for a new post-wake sample before using streamed data as current.
 Existing streams resume without resubscribing; a direct read is a separate
 request and does not refresh the subscription cache.
+
+## Encoder and IMU experiment
+
+Exact v0.4.0 boards with protocol 2.19 can opt into the volatile comparison
+experiment. Legacy encoder control remains the default. See [mounting, health,
+compact diagnostics and examples](fusion-experiment.md).

@@ -9,7 +9,7 @@ import struct
 from enum import IntEnum
 
 
-PROTOCOL_VERSION = (2, 18, 0)
+PROTOCOL_VERSION = (2, 19, 0)
 
 GET_TEMPERATURE = 0x50
 GET_IMU = 0x51
@@ -98,6 +98,10 @@ SET_DRIVER_SLEEP = 0x5B
 GET_DRIVER_SLEEP = 0x5C
 SET_BOARD_IDLE = 0x5D
 GET_BOARD_IDLE = 0x5E
+SET_FUSION_EXPERIMENT = 0x5F
+GET_FUSION_STATUS = 0x60
+GET_FUSION_VECTOR = 0x61
+GET_FUSION_CONFIGURATION = 0x62
 
 
 class ErrorCode(IntEnum):
@@ -697,6 +701,109 @@ class MotorCurrentLimit:
         return cls(*_unpack_payload('<?H', payload))
 
 
+class FusionStatus:
+    """Volatile v0.4 fusion experiment diagnostics; see command descriptions.
+
+    mode: Selected fusion_modes value.
+    health: Current fusion_health value.
+    fault: Current fusion_faults reason, or NONE.
+    flags: Bitmask of fusion_flags; ESTIMATE_VALID is required before using estimates.
+    sequence: Snapshot sequence; compare with each vector before associating this status.
+    timestamp_us: Monotonic board microseconds of this estimate snapshot; not wall time.
+    accel_age_us: UINT32_MAX means unavailable.
+    gyro_age_us: UINT32_MAX means unavailable.
+    encoder_age_us: UINT32_MAX means unavailable.
+    """
+
+    def __init__(self, mode: int, health: int, fault: int, flags: int, sequence: int, timestamp_us: int, accel_age_us: int, gyro_age_us: int, encoder_age_us: int):
+        """Store the fields of one controller payload."""
+        self.mode = mode
+        self.health = health
+        self.fault = fault
+        self.flags = flags
+        self.sequence = sequence
+        self.timestamp_us = timestamp_us
+        self.accel_age_us = accel_age_us
+        self.gyro_age_us = gyro_age_us
+        self.encoder_age_us = encoder_age_us
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 28
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<BBBBIQIII', self.mode, self.health, self.fault, self.flags, self.sequence, self.timestamp_us, self.accel_age_us, self.gyro_age_us, self.encoder_age_us))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'FusionStatus':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<BBBBIQIII', payload))
+
+
+class FusionVector:
+    """Volatile v0.4 fusion experiment diagnostics; see command descriptions.
+
+    sequence: Match GET_FUSION_STATUS sequence before associating its timestamp or health.
+    x: Pose X in metres, twist X in metres per second, or X accelerometer bias in metres per
+    second squared, selected by kind.
+    y: Pose Y in metres, twist Y in metres per second, or Y accelerometer bias in metres per
+    second squared, selected by kind.
+    z: Pose yaw in radians, twist yaw rate in radians per second, or Z gyro bias in radians
+    per second, selected by kind.
+    """
+
+    def __init__(self, sequence: int, x: float, y: float, z: float):
+        """Store the fields of one controller payload."""
+        self.sequence = sequence
+        self.x = x
+        self.y = y
+        self.z = z
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 28
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<Iddd', self.sequence, self.x, self.y, self.z))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'FusionVector':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<Iddd', payload))
+
+
+class FusionConfiguration:
+    """Volatile v0.4 fusion experiment diagnostics; see command descriptions.
+
+    mode: Selected fusion_modes value; boot default is LEGACY_ENCODER.
+    mounting_yaw_rad: Angle of board +X in the chassis XY plane, counterclockwise about
+    chassis +Z; finite radians in [-pi, pi].
+    """
+
+    def __init__(self, mode: int, mounting_yaw_rad: float):
+        """Store the fields of one controller payload."""
+        self.mode = mode
+        self.mounting_yaw_rad = mounting_yaw_rad
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 9
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<Bd', self.mode, self.mounting_yaw_rad))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'FusionConfiguration':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<Bd', payload))
+
+
 class SubscriptionMode(IntEnum):
     """Delivery behavior for a generic telemetry subscription."""
     PERIODIC = 0
@@ -719,6 +826,47 @@ class PwmFrequency(IntEnum):
     KHZ_25 = 25000
     KHZ_50 = 50000
     KHZ_100 = 100000
+
+
+class FusionMode(IntEnum):
+    LEGACY_ENCODER = 0
+    ENCODER_CORRECTION = 1
+    FUSED = 2
+
+
+class FusionHealth(IntEnum):
+    DISABLED = 0
+    WAITING = 1
+    HEALTHY = 2
+    FAULT = 3
+
+
+class FusionFault(IntEnum):
+    NONE = 0
+    MOUNT_INVALID = 1
+    ENCODER_UNAVAILABLE = 2
+    IMU_UNAVAILABLE = 3
+    STALE = 4
+    TIMESTAMP = 5
+    SATURATION = 6
+    BIAS_NOT_READY = 7
+    DISCONTINUITY = 8
+    INHIBITED = 9
+
+
+class FusionFlag(IntEnum):
+    ESTIMATE_VALID = 1
+    BIAS_READY = 2
+    FRESH_TARGET_REQUIRED = 4
+    CORRECTION_ACTIVE = 8
+
+
+class FusionVectorKind(IntEnum):
+    ENCODER_POSE = 0
+    ENCODER_TWIST = 1
+    FUSED_POSE = 2
+    FUSED_TWIST = 3
+    BIAS = 4
 
 
 EVENT_TOPICS = (6,)
@@ -1320,14 +1468,20 @@ class KinisiCommands:
 
     def set_platform_target_velocity(self, x: float, y: float, t: float) -> None:
         """This command set the target velocity for the platform in meters per second. Cancels
-        platform position control; initialize it again before another pose target.
+        platform position control; initialize it again before another pose target. With an
+        active fusion experiment, rejects invalid or stale feedback and targets fenced by an
+        earlier fault with SAMPLE_NOT_AVAILABLE; both experimental modes require 100 ms of
+        observed unchanged configured counters for initial rest arming. Once armed, ordinary
+        target updates remain accepted while moving. Wait for healthy feedback and submit a
+        fresh target; stopped cold configuration can ACK while still WAITING.
 
         x: X component of platform velocity in meters per second
         y: Y component of platform velocity in meters per second
         t: Theta component of platform velocity in radians per second
 
         Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
-        PLATFORM_NOT_INITIALIZED, CONTROLLER_NOT_INITIALIZED, INIT_REQUIRED.
+        PLATFORM_NOT_INITIALIZED, CONTROLLER_NOT_INITIALIZED, INIT_REQUIRED,
+        SAMPLE_NOT_AVAILABLE.
         """
         payload = struct.pack('<ddd', x, y, t)
         result = self._request(SET_PLATFORM_TARGET_VELOCITY, payload, 0)
@@ -1954,4 +2108,101 @@ class KinisiCommands:
         if idle not in (0, 1):
             raise ValueError('Invalid board idle state')
         return idle
+
+    def set_fusion_experiment(self, mode: int, mounting_yaw_rad: float) -> None:
+        """Configure the volatile v0.4 experiment only while motion is stopped and all
+        commanded targets and motor outputs are zero; initialized controllers with idle zero
+        targets are allowed. Mode 0 retains the legacy encoder path (boot default), 1 uses
+        encoder feedback with the common chassis correction, and 2 uses fused feedback with
+        that same correction. No IMU-only mode. For modes 1/2 the caller declares a rigid,
+        level board with component side up, IMU at the chassis reference point, and
+        mounting_yaw_rad as the angle of board +X expressed in chassis XY, counterclockwise
+        about chassis +Z. Sensor-to-board axes are (-x,-y,+z); chassis axes are
+        forward/left/up. Reject nonfinite or out-of-range yaw, any observed configured
+        encoder movement in the preceding 100 ms, or a counter change since a fresh sample.
+        Stopped cold setup may ACK in WAITING; ACK does not establish readiness. Both
+        experimental modes require 100 ms of observed unchanged configured counters for
+        initial rest arming before accepting a motion target; once armed, ordinary target
+        updates remain accepted while moving; fused bias calibration may run within that
+        window. Reconfiguration cancels old targets. Sources may requalify automatically
+        after an ordinary sensor fault, but healthy inputs and a fresh target are required
+        before control resumes. Does not save to FRAM or start motion. Requires READY, exact
+        v0.4.0 fusion capability and protocol 2.19.
+
+        mode: FusionMode value.
+        mounting_yaw_rad: Declared level centered mounting yaw in radians.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, BOARD_IDLE, DRIVERS_ASLEEP,
+        PLATFORM_NOT_INITIALIZED.
+        """
+        if isinstance(mode, bool) or not isinstance(mode, int) or mode not in (0, 1, 2):
+            raise ValueError('Invalid fusion experiment mode')
+        if isinstance(mounting_yaw_rad, bool) or not isinstance(mounting_yaw_rad, (int, float)) or not math.isfinite(mounting_yaw_rad) or abs(mounting_yaw_rad) > math.pi:
+            raise ValueError('Mounting yaw must be finite radians within [-pi, pi]')
+        payload = struct.pack('<Bd', mode, mounting_yaw_rad)
+        result = self._request(SET_FUSION_EXPERIMENT, payload, 0)
+
+    def get_fusion_status(self) -> FusionStatus:
+        """Read experiment mode, health, fault, flags and timestamped sample ages without
+        setting targets or changing configuration. A read may enforce an expired feedback
+        deadline, clear the live target and coast. Health/fault/flag values use the
+        FusionHealth/FusionFault/FusionFlag catalogs. Timestamp uses the monotonic board
+        clock; unavailable ages are UINT32_MAX. The physical IMU producer waits 2 ms between
+        passes, without guaranteeing a 2 ms acquisition cadence, and pairs only acquisition
+        windows entirely preceding the encoder timestamp: each window is at most 5 ms wide,
+        worst-case accel/gyro skew at most 15 ms, and age at most 35 ms. These are software
+        acceptance limits, not a physical timing qualification. ESTIMATE_VALID describes the
+        selected experiment estimate, not physical accuracy. Requires READY, exact v0.4.0
+        fusion capability and protocol 2.19.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
+        """
+        payload = struct.pack('<')
+        result = self._request(GET_FUSION_STATUS, payload, FusionStatus.get_size())
+        sample = FusionStatus.decode(result)
+        if sample.mode > 2 or sample.health > 3 or sample.fault > 9 or sample.flags > 15:
+            raise ValueError('Invalid fusion status')
+        return sample
+
+    def get_fusion_vector(self, kind: int) -> FusionVector:
+        """Read one compact experiment vector: 0 encoder pose (relative x,y,yaw), 1 encoder
+        body twist (vx,vy,yaw rate), 2 fused pose, 3 fused body twist, 4 estimated bias
+        (ax,ay,gyro z). Units are metres, seconds and radians. On outage recovery, the last
+        fused-from-encoder world transform is reapplied to the current encoder pose. Returns
+        SAMPLE_NOT_AVAILABLE when the requested estimate is invalid. Match sequence with
+        GET_FUSION_STATUS to associate timestamp/health; different sequences are different
+        snapshots. At most 28 payload bytes so the framed reply fits Arduino Wire32. Does
+        not reset state or start motion. Requires READY, exact v0.4.0 fusion capability and
+        protocol 2.19.
+
+        kind: FusionVectorKind value.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, SAMPLE_NOT_AVAILABLE.
+        """
+        if isinstance(kind, bool) or not isinstance(kind, int) or not 0 <= kind <= 4:
+            raise ValueError('Invalid fusion vector kind')
+        payload = struct.pack('<B', kind)
+        result = self._request(GET_FUSION_VECTOR, payload, FusionVector.get_size())
+        sample = FusionVector.decode(result)
+        if not all(math.isfinite(value) for value in (sample.x, sample.y, sample.z)):
+            raise ValueError('Invalid fusion vector')
+        return sample
+
+    def get_fusion_configuration(self) -> FusionConfiguration:
+        """Read the volatile experiment mode and declared mounting yaw without changing state.
+        Reset selects legacy encoder mode; SAVE_CONFIGURATION does not persist this
+        experiment. Requires READY, exact v0.4.0 fusion capability and protocol 2.19.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
+        """
+        payload = struct.pack('<')
+        result = self._request(GET_FUSION_CONFIGURATION, payload, FusionConfiguration.get_size())
+        sample = FusionConfiguration.decode(result)
+        if sample.mode > 2 or not math.isfinite(sample.mounting_yaw_rad) or abs(sample.mounting_yaw_rad) > math.pi:
+            raise ValueError('Invalid fusion configuration')
+        return sample
 

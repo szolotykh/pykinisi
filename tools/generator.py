@@ -37,7 +37,30 @@ SESSION_COMMANDS = {
 
 
 
+
+FUSION_CATALOGS = [
+    ('fusion_modes', 'FusionMode', 'FUSION_MODE', ['LEGACY_ENCODER', 'ENCODER_CORRECTION', 'FUSED']),
+    ('fusion_health', 'FusionHealth', 'FUSION_HEALTH', ['DISABLED', 'WAITING', 'HEALTHY', 'FAULT']),
+    ('fusion_faults', 'FusionFault', 'FUSION_FAULT', ['NONE', 'MOUNT_INVALID', 'ENCODER_UNAVAILABLE', 'IMU_UNAVAILABLE', 'STALE', 'TIMESTAMP', 'SATURATION', 'BIAS_NOT_READY', 'DISCONTINUITY', 'INHIBITED']),
+    ('fusion_flags', 'FusionFlag', 'FUSION_FLAG', ['ESTIMATE_VALID', 'BIAS_READY', 'FRESH_TARGET_REQUIRED', 'CORRECTION_ACTIVE']),
+    ('fusion_vectors', 'FusionVectorKind', 'FUSION_VECTOR', ['ENCODER_POSE', 'ENCODER_TWIST', 'FUSED_POSE', 'FUSED_TWIST', 'BIAS']),
+]
+
+def validate_fusion(schema):
+    commands = {c['command'] for c in schema.get('commands', [])}
+    required = {'SET_FUSION_EXPERIMENT', 'GET_FUSION_STATUS', 'GET_FUSION_VECTOR', 'GET_FUSION_CONFIGURATION'}
+    if not commands & required and not any(key in schema for key, *_ in FUSION_CATALOGS):
+        return
+    if not required <= commands:
+        raise ValueError('Incomplete fusion command family')
+    for key, _, _, names in FUSION_CATALOGS:
+        ids = [1, 2, 4, 8] if key == 'fusion_flags' else list(range(len(names)))
+        values = schema.get(key, [])
+        if [(v.get('id'), v.get('name')) for v in values] != list(zip(ids, names)) or any(type(v.get('id')) is not int for v in values):
+            raise ValueError('Invalid ' + key + ' catalog')
+
 def validate_pwm_frequency(schema):
+    validate_fusion(schema)
     values = schema.get('pwm_frequencies', [])
     expected = [(v, 'KHZ_' + str(v // 1000)) for v in (10000, 20000, 25000, 50000, 100000)]
     if [(v.get('id'), v.get('name')) for v in values] != expected or any(type(v.get('id')) is not int for v in values):
@@ -262,6 +285,11 @@ def _generate_method(cmd, objects):
         result += "        if isinstance(frequency_hz, bool) or not isinstance(frequency_hz, int) or frequency_hz not in tuple(PwmFrequency):\n            raise ValueError('Invalid PWM frequency')\n"
     if cmd['command'] == 'SET_DRIVER_SLEEP':
         result += "        if type(sleeping) is not int or sleeping not in (0, 1):\n            raise ValueError('sleeping must be integer 0 or 1')\n"
+    if cmd['command'] == 'SET_FUSION_EXPERIMENT':
+        result += "        if isinstance(mode, bool) or not isinstance(mode, int) or mode not in (0, 1, 2):\n            raise ValueError('Invalid fusion experiment mode')\n"
+        result += "        if isinstance(mounting_yaw_rad, bool) or not isinstance(mounting_yaw_rad, (int, float)) or not math.isfinite(mounting_yaw_rad) or abs(mounting_yaw_rad) > math.pi:\n            raise ValueError('Mounting yaw must be finite radians within [-pi, pi]')\n"
+    if cmd['command'] == 'GET_FUSION_VECTOR':
+        result += "        if isinstance(kind, bool) or not isinstance(kind, int) or not 0 <= kind <= 4:\n            raise ValueError('Invalid fusion vector kind')\n"
     if cmd['command'] == 'SET_BOARD_IDLE':
         result += "        if type(idle) is not int or idle not in (0, 1):\n            raise ValueError('idle must be integer 0 or 1')\n"
     if cmd['command'] == 'SET_MOTOR_CURRENT_LIMIT':
@@ -282,7 +310,16 @@ def _generate_method(cmd, objects):
     result += f"        payload = struct.pack({_format(props)!r}{', ' if values else ''}{values})\n"
     size = f"{get_object_name(obj)}.get_size()" if obj else str(type_to_size_map[response["type"]]) if response else "0"
     result += f"        result = self._request({cmd['command']}, payload, {size})\n"
-    if cmd['command'] == 'GET_IMU':
+    if cmd['command'].startswith('GET_FUSION_'):
+        result += f"        sample = {get_object_name(obj)}.decode(result)\n"
+        if cmd['command'] == 'GET_FUSION_STATUS':
+            result += "        if sample.mode > 2 or sample.health > 3 or sample.fault > 9 or sample.flags > 15:\n            raise ValueError('Invalid fusion status')\n"
+        elif cmd['command'] == 'GET_FUSION_CONFIGURATION':
+            result += "        if sample.mode > 2 or not math.isfinite(sample.mounting_yaw_rad) or abs(sample.mounting_yaw_rad) > math.pi:\n            raise ValueError('Invalid fusion configuration')\n"
+        else:
+            result += "        if not all(math.isfinite(value) for value in (sample.x, sample.y, sample.z)):\n            raise ValueError('Invalid fusion vector')\n"
+        result += "        return sample\n"
+    elif cmd['command'] == 'GET_IMU':
         result += f"        sample = {get_object_name(obj)}.decode(result)\n"
         result += "        if not all(math.isfinite(value) for value in vars(sample).values()):\n"
         result += "            raise ValueError('Invalid IMU payload')\n"
@@ -349,7 +386,7 @@ def generate_python_code(commands_data):
         for mode in commands_data['subscription_modes']:
             result += f"    {mode['name']} = {mode['id']}\n"
         result += '\n\n'
-    for key, name in [('subscription_triggers', 'SubscriptionTrigger'), ('subscription_deliveries', 'SubscriptionDelivery'), ('pwm_frequencies', 'PwmFrequency')]:
+    for key, name in [('subscription_triggers', 'SubscriptionTrigger'), ('subscription_deliveries', 'SubscriptionDelivery'), ('pwm_frequencies', 'PwmFrequency')] + [(key, name) for key, name, _, _ in FUSION_CATALOGS]:
         if commands_data.get(key):
             result += f'class {name}(IntEnum):\n'
             for item in commands_data[key]:

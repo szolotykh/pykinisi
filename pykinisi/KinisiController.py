@@ -19,6 +19,7 @@ from .KinisiCommands import (
     PING, SET_HEARTBEAT_CONFIG, SUBSCRIBE_ODOMETRY, UNSUBSCRIBE_ODOMETRY,
     ENCODER_ODOMETRY_EVENT, PLATFORM_ODOMETRY_EVENT,
     EncoderOdometrySample, PlatformOdometrySample, GET_TEMPERATURE, GET_IMU, GET_MOTOR_CURRENT, GET_MOTOR_FAULTS, CLEAR_MOTOR_FAULTS, GET_PWM_FREQUENCY, SET_PWM_FREQUENCY, GET_MOTOR_CURRENT_LIMIT, SET_MOTOR_CURRENT_LIMIT,
+    SET_FUSION_EXPERIMENT, GET_FUSION_STATUS, GET_FUSION_VECTOR, GET_FUSION_CONFIGURATION,
     SAVE_CONFIGURATION, GET_CONFIGURATION_FIELD, SET_DRIVER_SLEEP, GET_DRIVER_SLEEP, SET_BOARD_IDLE, GET_BOARD_IDLE,
     SUBSCRIBE, SUBSCRIBE_WITH_MODE, SUBSCRIBE_CONFIGURED, UNSUBSCRIBE, TELEMETRY_EVENT, Topic, SubscriptionMode, SubscriptionTrigger, SubscriptionDelivery, validate_topic, decode_telemetry_event,
 )
@@ -208,6 +209,16 @@ class KinisiController(KinisiCommands):
             minimum = {(1, 0, 3, 0): 17, (1, 0, 3, 1): 17, (1, 0, 4, 0): 15}.get(identity)
             return (minimum is not None and profile.get('power', {}).get('driver_sleep') is True and
                     info.protocol_minor >= minimum)
+
+    def supports_fusion_experiment(self):
+        """Opt-in experiment on exact v0.4.0 and compatible protocol 2.19+."""
+        with self._lock:
+            info = self.board_info
+            profile = self.board_profile
+            return bool(self.ready and info is not None and profile is not None and
+                        (info.board_model, info.board_major, info.board_minor, info.board_patch) == (1, 0, 4, 0) and
+                        info.protocol_major == 2 and info.protocol_minor >= 19 and
+                        profile.get('capabilities', {}).get('fusion_experiment') is True)
 
     def supports_board_idle(self):
         """Require READY and the board-specific minimum protocol for shallow idle."""
@@ -461,6 +472,8 @@ class KinisiController(KinisiCommands):
                 raise ProtocolError('Configuration storage requires a ready v0.4 controller running protocol 2.14 or newer')
             if command in (SET_DRIVER_SLEEP, GET_DRIVER_SLEEP) and not self.supports_driver_sleep():
                 raise ProtocolError('Driver sleep requires READY and a supported board: v0.3/Nano protocol 2.17+, v0.4 protocol 2.15+')
+            if command in (SET_FUSION_EXPERIMENT, GET_FUSION_STATUS, GET_FUSION_VECTOR, GET_FUSION_CONFIGURATION) and not self.supports_fusion_experiment():
+                raise ProtocolError('Fusion experiment requires READY, exact v0.4.0 capability and protocol 2.19+')
             if command in (SET_BOARD_IDLE, GET_BOARD_IDLE) and not self.supports_board_idle():
                 raise ProtocolError('Board idle requires READY and a supported profile: v0.3/Nano protocol 2.18+, v0.4 protocol 2.16+')
             if command in (GET_PWM_FREQUENCY, SET_PWM_FREQUENCY):
