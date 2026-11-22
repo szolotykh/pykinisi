@@ -18,6 +18,8 @@ __all__ = [
     'EncoderOdometrySample', 'PlatformOdometrySample', 'ImuSample', 'KinisiError',
     'Topic', 'SubscriptionMode', 'SubscriptionTrigger', 'SubscriptionDelivery', 'Subscription', 'TemperatureSample', 'ImuTelemetrySample',
     'PwmFrequency', 'get_pwm_frequency_options', 'supports_pwm_frequency',
+    'ImuTrackingAction', 'ImuTrackingState', 'ImuTrackingFault', 'ImuTrackingFlag', 'ImuTrackingVectorKind',
+    'ImuTrackingStatus', 'ImuTrackingVector', 'ImuTrackingConfiguration',
     'FusionMode', 'FusionHealth', 'FusionFault', 'FusionFlag', 'FusionVectorKind',
     'FusionStatus', 'FusionVector', 'FusionConfiguration',
     'MotorCurrentLimit', 'get_motor_current_limit_options', 'supports_motor_current_limit',

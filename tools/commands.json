@@ -1,5 +1,5 @@
 {
-  "version": "2.19.0",
+  "version": "2.20.0",
   "commands": [
     {
       "command": "GET_TEMPERATURE",
@@ -2670,6 +2670,129 @@
         "direction": "controller_to_client",
         "description": "Packed little-endian diagnostic snapshot."
       }
+    },
+    {
+      "command": "SET_IMU_TRACKING",
+      "code": "0x63",
+      "direction": "client_to_controller",
+      "category": "IMU tracking",
+      "description": "Control volatile IMU-only relative tracking. START=0, RESET=2 and RECALIBRATE=3 are accepted from any state with stationary_mount_confirmed=1 and finite yaw in [-pi,pi]; all discard prior bias and pose and begin full cold stationary calibration at a new relative origin. The caller confirms true zero velocity, rigid level sensor-+Z-up mounting with IMU at the chassis reference point. Yaw is the angle of sensor +X in chassis XY, counterclockwise about chassis +Z. Sensor-to-chassis transform is Rz(yaw)*(x,y,z), axes forward/left/up. IMU stationarity checks cannot establish zero constant velocity. STOP=1 requires confirmation=0 and yaw=0 and stops integration. ACK confirms the action, not a valid estimate. Fault, expiry or interruption requires deliberate restart; no automatic recovery. Not saved to FRAM. Requires READY, exact model 1 hardware 0.4.0 with imu_tracking capability and protocol 2.20+. Independent of platform, encoders and fusion; never commands motion or changes control feedback.",
+      "properties": [
+        {
+          "name": "action",
+          "type": "uint8_t",
+          "description": "ImuTrackingAction value.",
+          "range": [
+            0,
+            3
+          ]
+        },
+        {
+          "name": "stationary_mount_confirmed",
+          "type": "uint8_t",
+          "description": "Explicit caller confirmation of stationary zero velocity and the supported rigid level centered mount; 0 or 1.",
+          "range": [
+            0,
+            1
+          ]
+        },
+        {
+          "name": "mounting_yaw_rad",
+          "type": "double",
+          "description": "Angle of sensor +X in chassis XY, counterclockwise about chassis +Z; sensor +Z up. Finite radians.",
+          "range": [
+            -3.141592653589793,
+            3.141592653589793
+          ]
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR",
+        "BOARD_IDLE",
+        "DRIVERS_ASLEEP"
+      ]
+    },
+    {
+      "command": "GET_IMU_TRACKING_STATUS",
+      "code": "0x64",
+      "direction": "client_to_controller",
+      "category": "IMU tracking",
+      "description": "Read IMU-only tracking state, fault, flags, sequence, joint sample-watermark timestamp, elapsed tracking time and separate accel/gyro ages in microseconds. UINT32_MAX age means unavailable. ESTIMATE_VALID is required for usable current estimates; timestamp and health are not physical accuracy guarantees. Reads can enforce expiry but never start tracking. Status and vector sequences must match to combine separate reads. Requires READY, exact model 1 hardware 0.4.0 with imu_tracking capability and protocol 2.20+. Independent of platform, encoders and fusion; never commands motion or changes control feedback.",
+      "properties": [],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR"
+      ],
+      "response": {
+        "name": "imu_tracking_status",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Packed little-endian IMU-only tracking snapshot."
+      }
+    },
+    {
+      "command": "GET_IMU_TRACKING_VECTOR",
+      "code": "0x65",
+      "direction": "client_to_controller",
+      "category": "IMU tracking",
+      "description": "Read a compact IMU-only vector selected by kind: POSE=0 (relative metres,metres,radians), TWIST=1 (body metres/second,metres/second,radians/second), BIAS=2 (accel-X,accel-Y metres/second squared and gyro-Z radians/second). SAMPLE_NOT_AVAILABLE means the requested estimate is invalid. Match sequence with GET_IMU_TRACKING_STATUS; never combine mismatched snapshots. Relative integration drifts and has no absolute position or heading reference. Requires READY, exact model 1 hardware 0.4.0 with imu_tracking capability and protocol 2.20+. Independent of platform, encoders and fusion; never commands motion or changes control feedback.",
+      "properties": [
+        {
+          "name": "kind",
+          "type": "uint8_t",
+          "description": "ImuTrackingVectorKind value.",
+          "range": [
+            0,
+            2
+          ]
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR",
+        "SAMPLE_NOT_AVAILABLE"
+      ],
+      "response": {
+        "name": "imu_tracking_vector",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Packed little-endian IMU-only tracking snapshot."
+      }
+    },
+    {
+      "command": "GET_IMU_TRACKING_CONFIGURATION",
+      "code": "0x66",
+      "direction": "client_to_controller",
+      "category": "IMU tracking",
+      "description": "Read mounting yaw and the actual bounded tracking horizon in microseconds. The development horizon is provisional; use this readback rather than assuming a fixed duration. Reset clears volatile tracking state; reconnect does not start or re-anchor tracking. Requires READY, exact model 1 hardware 0.4.0 with imu_tracking capability and protocol 2.20+. Independent of platform, encoders and fusion; never commands motion or changes control feedback.",
+      "properties": [],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR"
+      ],
+      "response": {
+        "name": "imu_tracking_configuration",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Packed little-endian IMU-only tracking snapshot."
+      }
     }
   ],
   "objects": [
@@ -3294,6 +3417,99 @@
           "description": "Angle of board +X in the chassis XY plane, counterclockwise about chassis +Z; finite radians in [-pi, pi]."
         }
       ]
+    },
+    {
+      "name": "imu_tracking_status",
+      "description": "Volatile IMU-only relative tracking diagnostics.",
+      "properties": [
+        {
+          "name": "state",
+          "type": "uint8_t",
+          "description": "ImuTrackingState value."
+        },
+        {
+          "name": "fault",
+          "type": "uint8_t",
+          "description": "ImuTrackingFault value."
+        },
+        {
+          "name": "flags",
+          "type": "uint8_t",
+          "description": "ImuTrackingFlag bitmask."
+        },
+        {
+          "name": "reserved",
+          "type": "uint8_t",
+          "description": "Reserved; must be zero."
+        },
+        {
+          "name": "sequence",
+          "type": "uint32_t",
+          "description": "Snapshot sequence; match vector reads."
+        },
+        {
+          "name": "timestamp_us",
+          "type": "uint64_t",
+          "description": "Monotonic joint accel/gyro sample watermark in board microseconds."
+        },
+        {
+          "name": "elapsed_us",
+          "type": "uint32_t",
+          "description": "Elapsed tracking time from the calibrated relative origin, in microseconds."
+        },
+        {
+          "name": "accel_age_us",
+          "type": "uint32_t",
+          "description": "Accel age in microseconds; UINT32_MAX if unavailable."
+        },
+        {
+          "name": "gyro_age_us",
+          "type": "uint32_t",
+          "description": "Gyro age in microseconds; UINT32_MAX if unavailable."
+        }
+      ]
+    },
+    {
+      "name": "imu_tracking_vector",
+      "description": "Volatile IMU-only relative tracking diagnostics.",
+      "properties": [
+        {
+          "name": "sequence",
+          "type": "uint32_t",
+          "description": "Match status sequence before associating health and time."
+        },
+        {
+          "name": "x",
+          "type": "double",
+          "description": "Pose X, body velocity X, or acceleration bias X, selected by kind."
+        },
+        {
+          "name": "y",
+          "type": "double",
+          "description": "Pose Y, body velocity Y, or acceleration bias Y, selected by kind."
+        },
+        {
+          "name": "z",
+          "type": "double",
+          "description": "Pose yaw, body yaw rate, or gyro Z bias, selected by kind."
+        }
+      ]
+    },
+    {
+      "name": "imu_tracking_configuration",
+      "description": "Volatile IMU-only relative tracking diagnostics.",
+      "properties": [
+        {
+          "name": "mounting_yaw_rad",
+          "type": "double",
+          "description": "Declared supported mounting yaw in radians."
+        },
+        {
+          "name": "window_us",
+          "type": "uint32_t",
+          "description": "Actual configured maximum relative tracking duration in microseconds."
+        }
+      ]
     }
   ],
   "header": {
@@ -3640,6 +3856,146 @@
     {
       "id": 4,
       "name": "BIAS"
+    }
+  ],
+  "imu_tracking_actions": [
+    {
+      "id": 0,
+      "name": "START",
+      "description": "Start"
+    },
+    {
+      "id": 1,
+      "name": "STOP",
+      "description": "Stop"
+    },
+    {
+      "id": 2,
+      "name": "RESET",
+      "description": "Reset"
+    },
+    {
+      "id": 3,
+      "name": "RECALIBRATE",
+      "description": "Recalibrate"
+    }
+  ],
+  "imu_tracking_states": [
+    {
+      "id": 0,
+      "name": "STOPPED",
+      "description": "Stopped"
+    },
+    {
+      "id": 1,
+      "name": "CALIBRATING",
+      "description": "Calibrating"
+    },
+    {
+      "id": 2,
+      "name": "TRACKING",
+      "description": "Tracking"
+    },
+    {
+      "id": 3,
+      "name": "FAULT",
+      "description": "Fault"
+    },
+    {
+      "id": 4,
+      "name": "EXPIRED",
+      "description": "Expired"
+    }
+  ],
+  "imu_tracking_faults": [
+    {
+      "id": 0,
+      "name": "NONE",
+      "description": "None"
+    },
+    {
+      "id": 1,
+      "name": "NOT_STATIONARY",
+      "description": "Not stationary"
+    },
+    {
+      "id": 2,
+      "name": "IMU_UNAVAILABLE",
+      "description": "Imu unavailable"
+    },
+    {
+      "id": 3,
+      "name": "STALE",
+      "description": "Stale"
+    },
+    {
+      "id": 4,
+      "name": "TIMESTAMP",
+      "description": "Timestamp"
+    },
+    {
+      "id": 5,
+      "name": "SATURATION",
+      "description": "Saturation"
+    },
+    {
+      "id": 6,
+      "name": "BIAS_NOT_READY",
+      "description": "Bias not ready"
+    },
+    {
+      "id": 7,
+      "name": "WINDOW_EXPIRED",
+      "description": "Window expired"
+    },
+    {
+      "id": 8,
+      "name": "INHIBITED",
+      "description": "Inhibited"
+    },
+    {
+      "id": 9,
+      "name": "MOUNT_INVALID",
+      "description": "Mount invalid"
+    }
+  ],
+  "imu_tracking_flags": [
+    {
+      "id": 1,
+      "name": "ESTIMATE_VALID",
+      "description": "Estimate valid"
+    },
+    {
+      "id": 2,
+      "name": "BIAS_READY",
+      "description": "Bias ready"
+    },
+    {
+      "id": 4,
+      "name": "RESTART_REQUIRED",
+      "description": "Restart required"
+    },
+    {
+      "id": 8,
+      "name": "MOUNT_CONFIRMED",
+      "description": "Mount confirmed"
+    }
+  ],
+  "imu_tracking_vectors": [
+    {
+      "id": 0,
+      "name": "POSE",
+      "description": "Pose"
+    },
+    {
+      "id": 1,
+      "name": "TWIST",
+      "description": "Twist"
+    },
+    {
+      "id": 2,
+      "name": "BIAS",
+      "description": "Bias"
     }
   ]
 }

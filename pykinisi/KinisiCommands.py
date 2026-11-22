@@ -9,7 +9,7 @@ import struct
 from enum import IntEnum
 
 
-PROTOCOL_VERSION = (2, 19, 0)
+PROTOCOL_VERSION = (2, 20, 0)
 
 GET_TEMPERATURE = 0x50
 GET_IMU = 0x51
@@ -102,6 +102,10 @@ SET_FUSION_EXPERIMENT = 0x5F
 GET_FUSION_STATUS = 0x60
 GET_FUSION_VECTOR = 0x61
 GET_FUSION_CONFIGURATION = 0x62
+SET_IMU_TRACKING = 0x63
+GET_IMU_TRACKING_STATUS = 0x64
+GET_IMU_TRACKING_VECTOR = 0x65
+GET_IMU_TRACKING_CONFIGURATION = 0x66
 
 
 class ErrorCode(IntEnum):
@@ -804,6 +808,105 @@ class FusionConfiguration:
         return cls(*_unpack_payload('<Bd', payload))
 
 
+class ImuTrackingStatus:
+    """Volatile IMU-only relative tracking diagnostics.
+
+    state: ImuTrackingState value.
+    fault: ImuTrackingFault value.
+    flags: ImuTrackingFlag bitmask.
+    reserved: Reserved; must be zero.
+    sequence: Snapshot sequence; match vector reads.
+    timestamp_us: Monotonic joint accel/gyro sample watermark in board microseconds.
+    elapsed_us: Elapsed tracking time from the calibrated relative origin, in microseconds.
+    accel_age_us: Accel age in microseconds; UINT32_MAX if unavailable.
+    gyro_age_us: Gyro age in microseconds; UINT32_MAX if unavailable.
+    """
+
+    def __init__(self, state: int, fault: int, flags: int, reserved: int, sequence: int, timestamp_us: int, elapsed_us: int, accel_age_us: int, gyro_age_us: int):
+        """Store the fields of one controller payload."""
+        self.state = state
+        self.fault = fault
+        self.flags = flags
+        self.reserved = reserved
+        self.sequence = sequence
+        self.timestamp_us = timestamp_us
+        self.elapsed_us = elapsed_us
+        self.accel_age_us = accel_age_us
+        self.gyro_age_us = gyro_age_us
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 28
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<BBBBIQIII', self.state, self.fault, self.flags, self.reserved, self.sequence, self.timestamp_us, self.elapsed_us, self.accel_age_us, self.gyro_age_us))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'ImuTrackingStatus':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<BBBBIQIII', payload))
+
+
+class ImuTrackingVector:
+    """Volatile IMU-only relative tracking diagnostics.
+
+    sequence: Match status sequence before associating health and time.
+    x: Pose X, body velocity X, or acceleration bias X, selected by kind.
+    y: Pose Y, body velocity Y, or acceleration bias Y, selected by kind.
+    z: Pose yaw, body yaw rate, or gyro Z bias, selected by kind.
+    """
+
+    def __init__(self, sequence: int, x: float, y: float, z: float):
+        """Store the fields of one controller payload."""
+        self.sequence = sequence
+        self.x = x
+        self.y = y
+        self.z = z
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 28
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<Iddd', self.sequence, self.x, self.y, self.z))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'ImuTrackingVector':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<Iddd', payload))
+
+
+class ImuTrackingConfiguration:
+    """Volatile IMU-only relative tracking diagnostics.
+
+    mounting_yaw_rad: Declared supported mounting yaw in radians.
+    window_us: Actual configured maximum relative tracking duration in microseconds.
+    """
+
+    def __init__(self, mounting_yaw_rad: float, window_us: int):
+        """Store the fields of one controller payload."""
+        self.mounting_yaw_rad = mounting_yaw_rad
+        self.window_us = window_us
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 12
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<dI', self.mounting_yaw_rad, self.window_us))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'ImuTrackingConfiguration':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<dI', payload))
+
+
 class SubscriptionMode(IntEnum):
     """Delivery behavior for a generic telemetry subscription."""
     PERIODIC = 0
@@ -867,6 +970,47 @@ class FusionVectorKind(IntEnum):
     FUSED_POSE = 2
     FUSED_TWIST = 3
     BIAS = 4
+
+
+class ImuTrackingAction(IntEnum):
+    START = 0
+    STOP = 1
+    RESET = 2
+    RECALIBRATE = 3
+
+
+class ImuTrackingState(IntEnum):
+    STOPPED = 0
+    CALIBRATING = 1
+    TRACKING = 2
+    FAULT = 3
+    EXPIRED = 4
+
+
+class ImuTrackingFault(IntEnum):
+    NONE = 0
+    NOT_STATIONARY = 1
+    IMU_UNAVAILABLE = 2
+    STALE = 3
+    TIMESTAMP = 4
+    SATURATION = 5
+    BIAS_NOT_READY = 6
+    WINDOW_EXPIRED = 7
+    INHIBITED = 8
+    MOUNT_INVALID = 9
+
+
+class ImuTrackingFlag(IntEnum):
+    ESTIMATE_VALID = 1
+    BIAS_READY = 2
+    RESTART_REQUIRED = 4
+    MOUNT_CONFIRMED = 8
+
+
+class ImuTrackingVectorKind(IntEnum):
+    POSE = 0
+    TWIST = 1
+    BIAS = 2
 
 
 EVENT_TOPICS = (6,)
@@ -2204,5 +2348,98 @@ class KinisiCommands:
         sample = FusionConfiguration.decode(result)
         if sample.mode > 2 or not math.isfinite(sample.mounting_yaw_rad) or abs(sample.mounting_yaw_rad) > math.pi:
             raise ValueError('Invalid fusion configuration')
+        return sample
+
+    def set_imu_tracking(self, action: int, stationary_mount_confirmed: int, mounting_yaw_rad: float) -> None:
+        """Control volatile IMU-only relative tracking. START=0, RESET=2 and RECALIBRATE=3 are
+        accepted from any state with stationary_mount_confirmed=1 and finite yaw in
+        [-pi,pi]; all discard prior bias and pose and begin full cold stationary calibration
+        at a new relative origin. The caller confirms true zero velocity, rigid level
+        sensor-+Z-up mounting with IMU at the chassis reference point. Yaw is the angle of
+        sensor +X in chassis XY, counterclockwise about chassis +Z. Sensor-to-chassis
+        transform is Rz(yaw)*(x,y,z), axes forward/left/up. IMU stationarity checks cannot
+        establish zero constant velocity. STOP=1 requires confirmation=0 and yaw=0 and stops
+        integration. ACK confirms the action, not a valid estimate. Fault, expiry or
+        interruption requires deliberate restart; no automatic recovery. Not saved to FRAM.
+        Requires READY, exact model 1 hardware 0.4.0 with imu_tracking capability and
+        protocol 2.20+. Independent of platform, encoders and fusion; never commands motion
+        or changes control feedback.
+
+        action: ImuTrackingAction value.
+        stationary_mount_confirmed: Explicit caller confirmation of stationary zero velocity
+        and the supported rigid level centered mount; 0 or 1.
+        mounting_yaw_rad: Angle of sensor +X in chassis XY, counterclockwise about chassis
+        +Z; sensor +Z up. Finite radians.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, BOARD_IDLE, DRIVERS_ASLEEP.
+        """
+        if isinstance(action, bool) or not isinstance(action, int) or not 0 <= action <= 3 or type(stationary_mount_confirmed) is not int or stationary_mount_confirmed not in (0, 1):
+            raise ValueError('Invalid IMU tracking action or confirmation')
+        if isinstance(mounting_yaw_rad, bool) or not isinstance(mounting_yaw_rad, (int, float)) or not math.isfinite(mounting_yaw_rad) or abs(mounting_yaw_rad) > math.pi or (action == 1 and (stationary_mount_confirmed != 0 or mounting_yaw_rad != 0)) or (action != 1 and stationary_mount_confirmed != 1):
+            raise ValueError('Invalid IMU tracking mounting declaration')
+        payload = struct.pack('<BBd', action, stationary_mount_confirmed, mounting_yaw_rad)
+        result = self._request(SET_IMU_TRACKING, payload, 0)
+
+    def get_imu_tracking_status(self) -> ImuTrackingStatus:
+        """Read IMU-only tracking state, fault, flags, sequence, joint sample-watermark
+        timestamp, elapsed tracking time and separate accel/gyro ages in microseconds.
+        UINT32_MAX age means unavailable. ESTIMATE_VALID is required for usable current
+        estimates; timestamp and health are not physical accuracy guarantees. Reads can
+        enforce expiry but never start tracking. Status and vector sequences must match to
+        combine separate reads. Requires READY, exact model 1 hardware 0.4.0 with
+        imu_tracking capability and protocol 2.20+. Independent of platform, encoders and
+        fusion; never commands motion or changes control feedback.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
+        """
+        payload = struct.pack('<')
+        result = self._request(GET_IMU_TRACKING_STATUS, payload, ImuTrackingStatus.get_size())
+        sample = ImuTrackingStatus.decode(result)
+        if sample.state > 4 or sample.fault > 9 or sample.flags > 15 or sample.reserved != 0:
+            raise ValueError('Invalid IMU tracking status')
+        return sample
+
+    def get_imu_tracking_vector(self, kind: int) -> ImuTrackingVector:
+        """Read a compact IMU-only vector selected by kind: POSE=0 (relative
+        metres,metres,radians), TWIST=1 (body metres/second,metres/second,radians/second),
+        BIAS=2 (accel-X,accel-Y metres/second squared and gyro-Z radians/second).
+        SAMPLE_NOT_AVAILABLE means the requested estimate is invalid. Match sequence with
+        GET_IMU_TRACKING_STATUS; never combine mismatched snapshots. Relative integration
+        drifts and has no absolute position or heading reference. Requires READY, exact
+        model 1 hardware 0.4.0 with imu_tracking capability and protocol 2.20+. Independent
+        of platform, encoders and fusion; never commands motion or changes control feedback.
+
+        kind: ImuTrackingVectorKind value.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, SAMPLE_NOT_AVAILABLE.
+        """
+        if isinstance(kind, bool) or not isinstance(kind, int) or not 0 <= kind <= 2:
+            raise ValueError('Invalid IMU tracking vector kind')
+        payload = struct.pack('<B', kind)
+        result = self._request(GET_IMU_TRACKING_VECTOR, payload, ImuTrackingVector.get_size())
+        sample = ImuTrackingVector.decode(result)
+        if not all(math.isfinite(value) for value in (sample.x, sample.y, sample.z)):
+            raise ValueError('Invalid IMU tracking vector')
+        return sample
+
+    def get_imu_tracking_configuration(self) -> ImuTrackingConfiguration:
+        """Read mounting yaw and the actual bounded tracking horizon in microseconds. The
+        development horizon is provisional; use this readback rather than assuming a fixed
+        duration. Reset clears volatile tracking state; reconnect does not start or
+        re-anchor tracking. Requires READY, exact model 1 hardware 0.4.0 with imu_tracking
+        capability and protocol 2.20+. Independent of platform, encoders and fusion; never
+        commands motion or changes control feedback.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
+        """
+        payload = struct.pack('<')
+        result = self._request(GET_IMU_TRACKING_CONFIGURATION, payload, ImuTrackingConfiguration.get_size())
+        sample = ImuTrackingConfiguration.decode(result)
+        if not math.isfinite(sample.mounting_yaw_rad) or abs(sample.mounting_yaw_rad) > math.pi or sample.window_us == 0:
+            raise ValueError('Invalid IMU tracking configuration')
         return sample
 

@@ -7,7 +7,8 @@
         "revision": "0.1.0"
       },
       "capabilities": {
-        "fusion_experiment": false
+        "fusion_experiment": false,
+        "imu_tracking": false
       },
       "power": {
         "driver_sleep": false,
@@ -66,7 +67,8 @@
         "revision": "0.2.0"
       },
       "capabilities": {
-        "fusion_experiment": false
+        "fusion_experiment": false,
+        "imu_tracking": false
       },
       "power": {
         "driver_sleep": false,
@@ -125,7 +127,8 @@
         "revision": "0.3.0"
       },
       "capabilities": {
-        "fusion_experiment": false
+        "fusion_experiment": false,
+        "imu_tracking": false
       },
       "power": {
         "driver_sleep": true,
@@ -184,7 +187,8 @@
         "revision": "0.3.1"
       },
       "capabilities": {
-        "fusion_experiment": false
+        "fusion_experiment": false,
+        "imu_tracking": false
       },
       "power": {
         "driver_sleep": true,
@@ -243,7 +247,8 @@
         "revision": "0.4.0"
       },
       "capabilities": {
-        "fusion_experiment": true
+        "fusion_experiment": true,
+        "imu_tracking": true
       },
       "power": {
         "driver_sleep": true,
