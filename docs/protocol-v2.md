@@ -330,3 +330,29 @@ motor fields. `get_pwm_frequency()` reads the applied frequency in hertz.
 The board restores the saved setup with outputs stopped. Reconnecting during
 the same boot preserves running edits. Call Save again to retain those edits
 across the next restart.
+
+## Motor-driver sleep
+
+`supports_driver_sleep()` requires a READY session, protocol 2.15 or later in
+major version 2, and a known board profile with `power.driver_sleep` enabled
+(currently v0.4.0). Both sleep commands reject unsupported sessions before I/O.
+
+```python
+if controller.supports_driver_sleep():
+    controller.set_driver_sleep(1)  # Wait for the board's ACK.
+    sleeping = controller.get_driver_sleep()  # Integer 0 or 1.
+    controller.set_driver_sleep(0)  # Explicit wake; wait for verified ACK.
+```
+
+The setter accepts integer 0 or 1. Sleep stops and coasts all motors, cancels
+active control, and inhibits new drive requests while communication remains
+available. `get_driver_sleep()` reads the board-wide inhibit shared by all
+clients; zero does not imply that every individual motor is initialized.
+Wake leaves outputs stopped. Initialize or start closed-loop control again
+before issuing new targets. Prohibited operations raise `ControllerError` with
+`ErrorCode.DRIVERS_ASLEEP` (19). A failed wake raises a device error and leaves
+the inhibit set; correct the cause and explicitly retry.
+
+Sleep is volatile and is not saved to FRAM. Reconnecting preserves its current
+state and sends no automatic sleep or wake command. Reset clears the inhibit
+and follows the board's normal boot and saved-configuration policy.

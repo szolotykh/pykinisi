@@ -29,7 +29,12 @@ def validate(bundle):
     require(isinstance(bundle['boards'], list) and bool(bundle['boards']), 'Expected board profiles')
     identities = set()
     for profile in bundle['boards']:
-        fields(profile, ('board', 'resources', 'motor_features', 'sensors') + (('pwm_frequency',) if 'pwm_frequency' in profile else ()), 'board profile')
+        fields(profile, ('board', 'resources', 'motor_features', 'sensors') +
+               (('pwm_frequency',) if 'pwm_frequency' in profile else ()) +
+               (('power',) if 'power' in profile else ()), 'board profile')
+        if 'power' in profile:
+            fields(profile['power'], ('driver_sleep',), 'power capabilities')
+            require(type(profile['power']['driver_sleep']) is bool, 'Invalid driver sleep capability')
         if 'pwm_frequency' in profile:
             pwm = profile['pwm_frequency']
             fields(pwm, ('default_hz', 'supported_hz'), 'PWM frequency')
