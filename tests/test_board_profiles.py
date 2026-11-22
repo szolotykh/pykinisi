@@ -96,6 +96,7 @@ class ProfileUpdaterTests(unittest.TestCase):
             lambda b: b['boards'][0]['board'].update(build_define='MP_V1'),
             lambda b: b['boards'][0]['resources'].update(motors=True),
             lambda b: b['boards'][3]['power'].update(driver_sleep=1),
+            lambda b: b['boards'][3]['power'].update(board_idle=1),
             lambda b: b['boards'][3]['power'].update(sleep_pin='PB0'),
             lambda b: b['boards'][3]['sensors']['imu'][0].update(id=1),
             lambda b: b['boards'][3]['motor_features'][0].update(current_limit='yes'),
@@ -108,6 +109,12 @@ class ProfileUpdaterTests(unittest.TestCase):
     def test_source_is_explicit(self):
         with mock.patch('sys.stderr', new=io.StringIO()), self.assertRaises(SystemExit):
             self.updater.main([])
+
+    def test_older_power_profiles_remain_valid(self):
+        for profile in self.bundle['boards']:
+            self.assertEqual(profile['power']['board_idle'], profile['board']['revision'] == '0.4.0')
+            profile['power'].pop('board_idle')
+        self.updater.generate(self.bundle)
 
     def test_local_import_check_and_failed_import_preserve_output(self):
         with tempfile.TemporaryDirectory() as directory:

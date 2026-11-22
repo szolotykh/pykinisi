@@ -356,3 +356,42 @@ the inhibit set; correct the cause and explicitly retry.
 Sleep is volatile and is not saved to FRAM. Reconnecting preserves its current
 state and sends no automatic sleep or wake command. Reset clears the inhibit
 and follows the board's normal boot and saved-configuration policy.
+
+## Communication-preserving board idle
+
+`supports_board_idle()` requires READY, protocol 2.16 or later within major
+version 2, and the exact board profile's `power.board_idle` capability
+(currently v0.4.0). Unsupported sessions fail locally before I/O. Protocol 2.15
+boards continue to support the separate driver-sleep API.
+
+```python
+if controller.supports_board_idle():
+    controller.set_board_idle(1)  # Integer 0 or 1; wait for the board ACK.
+    idle = controller.get_board_idle()  # Integer 0 or 1.
+    controller.set_board_idle(0)  # Explicit wake; never resumes motion targets.
+```
+
+Entry stops control, sleeps the drivers, and pauses existing subscriptions.
+Heartbeat, time sync and supported direct reads remain available. New
+subscriptions and independent driver-sleep changes raise `ControllerError` with
+`ErrorCode.BOARD_IDLE` (20). Motion requests return `DRIVERS_ASLEEP` (19).
+The session stays connected. Existing
+subscription handles remain active while their measurements are paused.
+
+Wake preserves an independent driver-sleep request that was active on entry.
+Otherwise firmware verifies the initialized drivers and leaves outputs stopped.
+Read `get_driver_sleep()` separately; it reports the effective inhibit, including
+board idle, and cannot reveal the prior independent sleep request while idle.
+Waking the board does not necessarily wake its drivers. A failed transition raises a device error and keeps idle and
+motion inhibition active for an explicit retry. The SDK sends no extra driver,
+initialization, controller-start, or motion commands around idle transitions.
+Reconnect does not wake the board. Idle is volatile and clears on reset.
+
+`get_subscription_sample()` retains the last sample and its original
+`timestamp_us` through idle and wake. Callback consumers may likewise retain an
+old sample, and callbacks already queued before entry may still run. Neither a
+cached value, an active subscription handle, nor a successful wake proves that
+a fresh measurement has arrived. Track sample timestamps in their clock domain
+and wait for a new post-wake sample before using streamed data as current.
+Existing streams resume without resubscribing; a direct read is a separate
+request and does not refresh the subscription cache.

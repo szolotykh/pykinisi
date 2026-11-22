@@ -9,7 +9,7 @@ import struct
 from enum import IntEnum
 
 
-PROTOCOL_VERSION = (2, 15, 0)
+PROTOCOL_VERSION = (2, 16, 0)
 
 GET_TEMPERATURE = 0x50
 GET_IMU = 0x51
@@ -96,6 +96,8 @@ SAVE_CONFIGURATION = 0x59
 GET_CONFIGURATION_FIELD = 0x5A
 SET_DRIVER_SLEEP = 0x5B
 GET_DRIVER_SLEEP = 0x5C
+SET_BOARD_IDLE = 0x5D
+GET_BOARD_IDLE = 0x5E
 
 
 class ErrorCode(IntEnum):
@@ -120,6 +122,7 @@ class ErrorCode(IntEnum):
     SUBSCRIPTION_LIMIT = 17
     SAMPLE_OUT_OF_RANGE = 18
     DRIVERS_ASLEEP = 19
+    BOARD_IDLE = 20
 
 
 ERROR_DESCRIPTIONS = {
@@ -142,6 +145,7 @@ ERROR_DESCRIPTIONS = {
     17: 'This connection has no free subscription slots; unsubscribe an existing source first.',
     18: 'The sensor reading is saturated; no valid measurement can be returned.',
     19: 'Driver sleep is active. Explicitly wake the drivers before requesting this operation.',
+    20: 'Board idle is active. Explicitly wake the board before changing driver sleep or starting a subscription.',
 }
 
 
@@ -1494,8 +1498,8 @@ class KinisiCommands:
         source: 0 through 3 select encoder odometry; 4 selects platform odometry.
         interval_ms: Delivery interval, independent of calculation scheduling.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED,
-        CLOCK_NOT_READY, ODOMETRY_NOT_INITIALIZED.
+        Controller errors: BOARD_IDLE, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
+        INIT_REQUIRED, CLOCK_NOT_READY, ODOMETRY_NOT_INITIALIZED.
         """
         payload = struct.pack('<BI', source, interval_ms)
         result = self._request(SUBSCRIBE_ODOMETRY, payload, 0)
@@ -1688,9 +1692,9 @@ class KinisiCommands:
         firmware.
         interval_ms: Requested delivery interval in milliseconds; scheduling is best effort.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
-        ODOMETRY_NOT_INITIALIZED, SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, SUBSCRIPTION_LIMIT,
-        SAMPLE_OUT_OF_RANGE.
+        Controller errors: BOARD_IDLE, INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED,
+        CLOCK_NOT_READY, ODOMETRY_NOT_INITIALIZED, SENSOR_NOT_AVAILABLE, INTERNAL_ERROR,
+        SUBSCRIPTION_LIMIT, SAMPLE_OUT_OF_RANGE.
         """
         validate_topic(topic_id, index)
         if type(interval_ms) is not int or not TOPIC_DEFINITIONS[topic_id][2] <= interval_ms <= 3600000:
@@ -1725,9 +1729,9 @@ class KinisiCommands:
         interval_ms: Sampling interval in milliseconds; scheduling is best effort.
         mode: Subscription delivery mode.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
-        ODOMETRY_NOT_INITIALIZED, SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, SUBSCRIPTION_LIMIT,
-        SAMPLE_OUT_OF_RANGE.
+        Controller errors: BOARD_IDLE, INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED,
+        CLOCK_NOT_READY, ODOMETRY_NOT_INITIALIZED, SENSOR_NOT_AVAILABLE, INTERNAL_ERROR,
+        SUBSCRIPTION_LIMIT, SAMPLE_OUT_OF_RANGE.
         """
         validate_topic(topic_id, index)
         if type(interval_ms) is not int or not TOPIC_DEFINITIONS[topic_id][2] <= interval_ms <= 3600000:
@@ -1811,9 +1815,9 @@ class KinisiCommands:
         max_silence_ms: Fresh-sample refresh interval for ON_CHANGE; zero disables
         refreshes. Must meet the topic minimum.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
-        ODOMETRY_NOT_INITIALIZED, SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, SUBSCRIPTION_LIMIT,
-        SAMPLE_OUT_OF_RANGE.
+        Controller errors: BOARD_IDLE, INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED,
+        CLOCK_NOT_READY, ODOMETRY_NOT_INITIALIZED, SENSOR_NOT_AVAILABLE, INTERNAL_ERROR,
+        SUBSCRIPTION_LIMIT, SAMPLE_OUT_OF_RANGE.
         """
         validate_topic(topic_id, index)
         if isinstance(trigger, bool) or not isinstance(trigger, int) or trigger not in tuple(SubscriptionTrigger) or isinstance(delivery, bool) or not isinstance(delivery, int) or delivery not in tuple(SubscriptionDelivery):
@@ -1892,8 +1896,8 @@ class KinisiCommands:
 
         sleeping: 1 to request driver sleep or 0 to wake.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
-        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
+        Controller errors: BOARD_IDLE, INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED,
+        CLOCK_NOT_READY, SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
         """
         if type(sleeping) is not int or sleeping not in (0, 1):
             raise ValueError('sleeping must be integer 0 or 1')
@@ -1915,4 +1919,39 @@ class KinisiCommands:
         if sleeping not in (0, 1):
             raise ValueError('Invalid driver sleep state')
         return sleeping
+
+    def set_board_idle(self, idle: int) -> None:
+        """Enter communication-preserving board idle (1) or explicitly leave it (0). Entry
+        stops control and sleeps all drivers. Existing subscriptions pause and resume with
+        fresh samples. Heartbeat, time sync and direct reads remain available. Wake
+        preserves an independent driver sleep request present on entry, otherwise it
+        verifies initialized drivers and leaves outputs stopped. A failed transition keeps
+        idle and motion inhibition active for explicit retry. Requires READY, protocol 2.16
+        and a board with board idle support.
+
+        idle: 1 to enter board idle or 0 to wake the board.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, BOARD_IDLE.
+        """
+        if type(idle) is not int or idle not in (0, 1):
+            raise ValueError('idle must be integer 0 or 1')
+        payload = struct.pack('<B', idle)
+        result = self._request(SET_BOARD_IDLE, payload, 0)
+
+    def get_board_idle(self) -> int:
+        """Read the shared board idle request. It survives reconnect and clears on reset.
+        GET_DRIVER_SLEEP reports the effective motor-driver inhibit, which is also set while
+        the board is idle. Requires READY, protocol 2.16 and a board with board idle
+        support.
+
+        Controller errors: INVALID_LENGTH, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE.
+        """
+        payload = struct.pack('<')
+        result = self._request(GET_BOARD_IDLE, payload, 1)
+        idle = _unpack_payload('<B', result)[0]
+        if idle not in (0, 1):
+            raise ValueError('Invalid board idle state')
+        return idle
 

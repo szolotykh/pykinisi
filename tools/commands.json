@@ -1,5 +1,5 @@
 {
-  "version": "2.15.0",
+  "version": "2.16.0",
   "commands": [
     {
       "command": "GET_TEMPERATURE",
@@ -1532,6 +1532,7 @@
         }
       ],
       "errors": [
+        "BOARD_IDLE",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
@@ -2071,6 +2072,7 @@
         }
       ],
       "errors": [
+        "BOARD_IDLE",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INIT_REQUIRED",
@@ -2167,6 +2169,7 @@
         }
       ],
       "errors": [
+        "BOARD_IDLE",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INIT_REQUIRED",
@@ -2346,6 +2349,7 @@
         }
       ],
       "errors": [
+        "BOARD_IDLE",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INIT_REQUIRED",
@@ -2474,6 +2478,7 @@
         }
       ],
       "errors": [
+        "BOARD_IDLE",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INIT_REQUIRED",
@@ -2500,6 +2505,53 @@
         "type": "uint8_t",
         "direction": "controller_to_client",
         "description": "1 when driver sleep is requested or 0 when motor commands are permitted."
+      }
+    },
+    {
+      "command": "SET_BOARD_IDLE",
+      "code": "0x5D",
+      "direction": "client_to_controller",
+      "category": "Power",
+      "description": "Enter communication-preserving board idle (1) or explicitly leave it (0). Entry stops control and sleeps all drivers. Existing subscriptions pause and resume with fresh samples. Heartbeat, time sync and direct reads remain available. Wake preserves an independent driver sleep request present on entry, otherwise it verifies initialized drivers and leaves outputs stopped. A failed transition keeps idle and motion inhibition active for explicit retry. Requires READY, protocol 2.16 and a board with board idle support.",
+      "properties": [
+        {
+          "name": "idle",
+          "type": "uint8_t",
+          "range": [
+            0,
+            1
+          ],
+          "description": "1 to enter board idle or 0 to wake the board."
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR",
+        "BOARD_IDLE"
+      ]
+    },
+    {
+      "command": "GET_BOARD_IDLE",
+      "code": "0x5E",
+      "direction": "client_to_controller",
+      "category": "Power",
+      "description": "Read the shared board idle request. It survives reconnect and clears on reset. GET_DRIVER_SLEEP reports the effective motor-driver inhibit, which is also set while the board is idle. Requires READY, protocol 2.16 and a board with board idle support.",
+      "properties": [],
+      "errors": [
+        "INVALID_LENGTH",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE"
+      ],
+      "response": {
+        "name": "idle",
+        "type": "uint8_t",
+        "direction": "controller_to_client",
+        "description": "1 while the board idle request is active, otherwise 0."
       }
     }
   ],
@@ -3146,6 +3198,11 @@
       "code": 19,
       "name": "DRIVERS_ASLEEP",
       "description": "Driver sleep is active. Explicitly wake the drivers before requesting this operation."
+    },
+    {
+      "code": 20,
+      "name": "BOARD_IDLE",
+      "description": "Board idle is active. Explicitly wake the board before changing driver sleep or starting a subscription."
     }
   ],
   "topics": [

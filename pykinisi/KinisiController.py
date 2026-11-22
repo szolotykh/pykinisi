@@ -19,7 +19,7 @@ from .KinisiCommands import (
     PING, SET_HEARTBEAT_CONFIG, SUBSCRIBE_ODOMETRY, UNSUBSCRIBE_ODOMETRY,
     ENCODER_ODOMETRY_EVENT, PLATFORM_ODOMETRY_EVENT,
     EncoderOdometrySample, PlatformOdometrySample, GET_TEMPERATURE, GET_IMU, GET_MOTOR_CURRENT, GET_MOTOR_FAULTS, CLEAR_MOTOR_FAULTS, GET_PWM_FREQUENCY, SET_PWM_FREQUENCY, GET_MOTOR_CURRENT_LIMIT, SET_MOTOR_CURRENT_LIMIT,
-    SAVE_CONFIGURATION, GET_CONFIGURATION_FIELD, SET_DRIVER_SLEEP, GET_DRIVER_SLEEP,
+    SAVE_CONFIGURATION, GET_CONFIGURATION_FIELD, SET_DRIVER_SLEEP, GET_DRIVER_SLEEP, SET_BOARD_IDLE, GET_BOARD_IDLE,
     SUBSCRIBE, SUBSCRIBE_WITH_MODE, SUBSCRIBE_CONFIGURED, UNSUBSCRIBE, TELEMETRY_EVENT, Topic, SubscriptionMode, SubscriptionTrigger, SubscriptionDelivery, validate_topic, decode_telemetry_event,
 )
 from .board_profile import get_board_profile, supports_board_sensor, supports_motor_current, supports_motor_faults, get_motor_current_limit_options, supports_motor_current_limit, get_pwm_frequency_options, supports_pwm_frequency
@@ -204,6 +204,15 @@ class KinisiController(KinisiCommands):
             return (self.ready and info is not None and self.board_profile is not None and
                     self.board_profile.get('power', {}).get('driver_sleep') is True and
                     info.protocol_major == 2 and info.protocol_minor >= 15)
+
+    def supports_board_idle(self):
+        """Require READY, an exact idle-capable board and protocol 2.16+."""
+        with self._lock:
+            info = self.board_info
+            profile = self.board_profile
+            return (self.ready and info is not None and profile is not None and
+                    profile.get('power', {}).get('board_idle') is True and
+                    info.protocol_major == 2 and info.protocol_minor >= 16)
 
     def get_motor_current_limit_options(self, index=0):
         """Read the selected motor's supported thresholds and disable capability."""
@@ -445,6 +454,8 @@ class KinisiController(KinisiCommands):
                 raise ProtocolError('Configuration storage requires a ready v0.4 controller running protocol 2.14 or newer')
             if command in (SET_DRIVER_SLEEP, GET_DRIVER_SLEEP) and not self.supports_driver_sleep():
                 raise ProtocolError('Driver sleep requires a ready sleep-capable board running protocol 2.15 or newer')
+            if command in (SET_BOARD_IDLE, GET_BOARD_IDLE) and not self.supports_board_idle():
+                raise ProtocolError('Board idle requires a ready idle-capable board running protocol 2.16 or newer')
             if command in (GET_PWM_FREQUENCY, SET_PWM_FREQUENCY):
                 if not self._ready or self.board_info is None or self.board_info.protocol_major != 2 or self.board_info.protocol_minor < 13:
                     raise ProtocolError('PWM frequency configuration requires a ready protocol 2.13 or newer controller')
@@ -585,6 +596,8 @@ class KinisiController(KinisiCommands):
 
         Samples replace earlier values in a bounded cache. Reading it never sends a
         command or blocks the receive thread; each sample retains its measurement time.
+        Board idle pauses events without clearing this cache: a cached sample is
+        not proof of a fresh measurement, even immediately after waking.
         """
         if type(source) is not int or not 0 <= source <= 4:
             raise ValueError("source must be 0..4")

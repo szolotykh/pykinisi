@@ -33,8 +33,10 @@ def validate(bundle):
                (('pwm_frequency',) if 'pwm_frequency' in profile else ()) +
                (('power',) if 'power' in profile else ()), 'board profile')
         if 'power' in profile:
-            fields(profile['power'], ('driver_sleep',), 'power capabilities')
+            fields(profile['power'], ('driver_sleep',) + (('board_idle',) if 'board_idle' in profile['power'] else ()), 'power capabilities')
             require(type(profile['power']['driver_sleep']) is bool, 'Invalid driver sleep capability')
+            if 'board_idle' in profile['power']:
+                require(type(profile['power']['board_idle']) is bool, 'Invalid board idle capability')
         if 'pwm_frequency' in profile:
             pwm = profile['pwm_frequency']
             fields(pwm, ('default_hz', 'supported_hz'), 'PWM frequency')
