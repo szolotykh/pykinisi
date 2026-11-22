@@ -210,13 +210,16 @@ class KinisiController(KinisiCommands):
                     info.protocol_minor >= minimum)
 
     def supports_board_idle(self):
-        """Require READY, an exact idle-capable board and protocol 2.16+."""
+        """Require READY and the board-specific minimum protocol for shallow idle."""
         with self._lock:
             info = self.board_info
             profile = self.board_profile
-            return (self.ready and info is not None and profile is not None and
-                    profile.get('power', {}).get('board_idle') is True and
-                    info.protocol_major == 2 and info.protocol_minor >= 16)
+            if not self.ready or info is None or profile is None or info.protocol_major != 2:
+                return False
+            identity = (info.board_model, info.board_major, info.board_minor, info.board_patch)
+            minimum = {(1, 0, 3, 0): 18, (1, 0, 3, 1): 18, (1, 0, 4, 0): 16}.get(identity)
+            return (minimum is not None and profile.get('power', {}).get('board_idle') is True and
+                    info.protocol_minor >= minimum)
 
     def get_motor_current_limit_options(self, index=0):
         """Read the selected motor's supported thresholds and disable capability."""
@@ -459,7 +462,7 @@ class KinisiController(KinisiCommands):
             if command in (SET_DRIVER_SLEEP, GET_DRIVER_SLEEP) and not self.supports_driver_sleep():
                 raise ProtocolError('Driver sleep requires READY and a supported board: v0.3/Nano protocol 2.17+, v0.4 protocol 2.15+')
             if command in (SET_BOARD_IDLE, GET_BOARD_IDLE) and not self.supports_board_idle():
-                raise ProtocolError('Board idle requires a ready idle-capable board running protocol 2.16 or newer')
+                raise ProtocolError('Board idle requires READY and a supported profile: v0.3/Nano protocol 2.18+, v0.4 protocol 2.16+')
             if command in (GET_PWM_FREQUENCY, SET_PWM_FREQUENCY):
                 if not self._ready or self.board_info is None or self.board_info.protocol_major != 2 or self.board_info.protocol_minor < 13:
                     raise ProtocolError('PWM frequency configuration requires a ready protocol 2.13 or newer controller')

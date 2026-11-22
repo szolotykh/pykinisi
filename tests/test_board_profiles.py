@@ -49,7 +49,7 @@ class BoardProfileTests(unittest.TestCase):
         self.assertIsNot(nano, original)
         self.assertEqual(nano['board']['revision'], '0.3.1')
         self.assertTrue(nano['power']['driver_sleep'])
-        self.assertFalse(nano['power']['board_idle'])
+        self.assertTrue(nano['power']['board_idle'])
         self.assertEqual(nano['resources'], original['resources'])
         self.assertIsNone(get_board_profile(identity(3, board_patch=2)))
 
@@ -122,7 +122,7 @@ class ProfileUpdaterTests(unittest.TestCase):
 
     def test_older_power_profiles_remain_valid(self):
         for profile in self.bundle['boards']:
-            self.assertEqual(profile['power']['board_idle'], profile['board']['revision'] == '0.4.0')
+            self.assertEqual(profile['power']['board_idle'], profile['board']['revision'] in ('0.3.0', '0.3.1', '0.4.0'))
             profile['power'].pop('board_idle')
         self.updater.generate(self.bundle)
 

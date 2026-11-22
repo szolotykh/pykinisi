@@ -9,7 +9,7 @@ import struct
 from enum import IntEnum
 
 
-PROTOCOL_VERSION = (2, 17, 0)
+PROTOCOL_VERSION = (2, 18, 0)
 
 GET_TEMPERATURE = 0x50
 GET_IMU = 0x51
@@ -1920,13 +1920,14 @@ class KinisiCommands:
         return sleeping
 
     def set_board_idle(self, idle: int) -> None:
-        """Enter communication-preserving board idle (1) or explicitly leave it (0). Entry
-        stops control and sleeps all drivers. Existing subscriptions pause and resume with
-        fresh samples. Heartbeat, time sync and direct reads remain available. Wake
-        preserves an independent driver sleep request present on entry, otherwise it
-        verifies initialized drivers and leaves outputs stopped. A failed transition keeps
-        idle and motion inhibition active for explicit retry. Requires READY, protocol 2.16
-        and a board with board idle support.
+        """Set communication-preserving board idle. Entry (1) stops control, inhibits the
+        drivers and permits shallow CPU sleep between tasks. USB traffic, time sync, queries
+        and heartbeat keep using the existing session. Only explicit exit (0) clears idle.
+        Exit preserves a prior independent driver inhibit and leaves outputs stopped. On
+        original v0.3 and Nano both DRV8870 inputs stay low until fresh drive or brake. On
+        v0.4, previously active drivers are verified before release. A failed transition
+        retains idle and inhibit for explicit retry. Requires READY, an idle-capable profile
+        and protocol 2.18 on v0.3 or Nano, or 2.16 on v0.4.
 
         idle: 1 to enter board idle or 0 to wake the board.
 
@@ -1939,10 +1940,10 @@ class KinisiCommands:
         result = self._request(SET_BOARD_IDLE, payload, 0)
 
     def get_board_idle(self) -> int:
-        """Read the shared board idle request. It survives reconnect and clears on reset.
-        GET_DRIVER_SLEEP reports the effective motor-driver inhibit, which is also set while
-        the board is idle. Requires READY, protocol 2.16 and a board with board idle
-        support.
+        """Read the shared logical idle request without clearing it. Interrupts can resume the
+        CPU while this request remains set. GET_DRIVER_SLEEP reports the effective driver
+        inhibit. Idle survives reconnect and clears at reset. Requires READY and board idle
+        support (original v0.3 and Nano since protocol 2.18, v0.4 since 2.16).
 
         Controller errors: INVALID_LENGTH, INIT_REQUIRED, CLOCK_NOT_READY,
         SENSOR_NOT_AVAILABLE.

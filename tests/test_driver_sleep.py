@@ -40,7 +40,7 @@ class DriverSleepTests(unittest.TestCase):
                     self.assertIsNone(client.set_driver_sleep(sleeping))
                     self.assertEqual(client.get_driver_sleep(), sleeping)
                 self.assertEqual([raw[1] for raw in transport.frames[before:]], [SET_DRIVER_SLEEP, GET_DRIVER_SLEEP] * 4)
-                if minor == 3:
+                if minor == 3 and protocol < 18:
                     self.assertFalse(client.supports_board_idle())
                 client.board_info.protocol_major = 3
                 before = len(transport.frames)

@@ -358,8 +358,8 @@ request is valid without a preceding drive request, subject to the command's
 normal initialization requirements. Ordinary short brake drives both inputs
 high; stop/coast leaves both low. Brake requests made while inhibited, or stale
 requests from before the inhibit transition, are rejected.
-These boards have no SPI wake verification, current telemetry, fault readback,
-or board-idle support.
+These boards have no SPI wake verification, current telemetry or fault readback.
+Their separate board-idle API requires protocol 2.18 or later.
 On v0.4, wake verifies retained settings for initialized drivers.
 Wake leaves outputs stopped. Initialize or start closed-loop control again
 before issuing new targets. Prohibited operations raise `ControllerError` with
@@ -374,10 +374,11 @@ and follows the board's normal boot and saved-configuration policy.
 
 ## Communication-preserving board idle
 
-`supports_board_idle()` requires READY, protocol 2.16 or later within major
-version 2, and the exact board profile's `power.board_idle` capability
-(currently v0.4.0). Unsupported sessions fail locally before I/O. Protocol 2.15
-boards continue to support the separate driver-sleep API.
+`supports_board_idle()` requires READY, protocol major version 2 and the exact
+board profile's `power.board_idle` capability. Original v0.3.0 and Nano v0.3.1
+require protocol 2.18 or later; v0.4.0 requires 2.16 or later. Older firmware
+and unknown revisions fail locally before I/O. Driver-only sleep remains
+available on v0.3/Nano at protocol 2.17 and v0.4 at protocol 2.15.
 
 ```python
 if controller.supports_board_idle():
@@ -386,15 +387,21 @@ if controller.supports_board_idle():
     controller.set_board_idle(0)  # Explicit wake; never resumes motion targets.
 ```
 
-Entry stops control, sleeps the drivers, and pauses existing subscriptions.
+This is shallow idle with communication running, not MCU STOP or STANDBY.
+Entry stops control, inhibits the drivers, and pauses existing subscriptions.
 Heartbeat, time sync and supported direct reads remain available. New
 subscriptions and independent driver-sleep changes raise `ControllerError` with
 `ErrorCode.BOARD_IDLE` (20). Motion requests return `DRIVERS_ASLEEP` (19).
+Use the ordinary setter and getter on the same USB serial connection to enter,
+read and leave idle; no disconnect, reopen or initialization is needed.
 The session stays connected. Existing
 subscription handles remain active while their measurements are paused.
 
 Wake preserves an independent driver-sleep request that was active on entry.
-Otherwise firmware verifies the initialized drivers and leaves outputs stopped.
+Otherwise it clears the idle-imposed inhibit and leaves outputs stopped.
+v0.4 verifies initialized driver settings over SPI. On v0.3/Nano, both DRV8870
+inputs remain low until a fresh nonzero drive or explicit short-brake request;
+successful wake acknowledges the software state, not physical chip wake.
 Read `get_driver_sleep()` separately; it reports the effective inhibit, including
 board idle, and cannot reveal the prior independent sleep request while idle.
 Waking the board does not necessarily wake its drivers. A failed transition raises a device error and keeps idle and
