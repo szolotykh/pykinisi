@@ -14,9 +14,10 @@ from test_generator import recording_client
 STAMP = (1 << 60) + 7
 
 
-def status(source, origin=11, valid=True):
-    return struct.pack('<BBBBIQIBI', source, source if valid else 255, int(valid), 0 if valid else 5,
-                       42 if valid else 0, STAMP if valid else 0, origin, 0, 937 if valid else 0xffffffff)
+def status(source, origin=11, valid=True, sequence=42, stamp=STAMP, age_us=937, limit_ms=None):
+    return struct.pack('<BBBBIQIBIH', source, source if valid else 255, int(valid), 0 if valid else 5,
+                       sequence if valid else 0, stamp if valid else 0, origin, 0, age_us if valid else 0xffffffff,
+                       (300, 50, 60)[source] if limit_ms is None else limit_ms)
 
 
 class FeedbackSourceTests(unittest.TestCase):
@@ -33,15 +34,15 @@ class FeedbackSourceTests(unittest.TestCase):
                     data = status(source)
                 else:
                     self.assertEqual(command, GET_FEEDBACK_SOURCE_VECTOR)
-                    data = struct.pack('<Iddd', 42, 1.25 if payload == b'\0' else -0.5, 0, 0.3)
+                    data = struct.pack('<Iddd', 42, 1.25 if payload[0] == 0 else -0.5, 0, 0.3)
                 transport.inject(frame(command, mid, data))
 
             board.command_hook = reply
             sample = client.read_feedback_source_snapshot()
             self.assertEqual((sample.status.requested, sample.status.active, sample.status.timestamp_us,
                               sample.status.age_us, sample.pose.x, sample.twist.x), (source, source, STAMP, 937, 1.25, -0.5))
-            self.assertEqual(calls, [(GET_FEEDBACK_SOURCE_STATUS, b''), (GET_FEEDBACK_SOURCE_VECTOR, b'\0'),
-                                     (GET_FEEDBACK_SOURCE_VECTOR, b'\1'), (GET_FEEDBACK_SOURCE_STATUS, b'')])
+            self.assertEqual(calls, [(GET_FEEDBACK_SOURCE_STATUS, b''), (GET_FEEDBACK_SOURCE_VECTOR, struct.pack('<BII', 0, 11, 42)),
+                                     (GET_FEEDBACK_SOURCE_VECTOR, struct.pack('<BII', 1, 11, 42)), (GET_FEEDBACK_SOURCE_STATUS, b'')])
 
     def test_repeated_sequence_after_origin_change_and_expiry_mid_read(self):
         client, transport, board = self.connect(protocol=21)
@@ -61,6 +62,35 @@ class FeedbackSourceTests(unittest.TestCase):
         self.assertEqual((sample.status.requested, sample.status.active, sample.status.age_us, sample.pose, sample.twist),
                          (1, 255, 0xffffffff, None, None))
 
+    def test_advancing_producer_keeps_original_sample_and_measured_age(self):
+        client, transport, board = self.connect(protocol=21)
+        for source in (0, 1, 2):
+            start_age = 150000 if source == 0 else 1000
+            replies = iter([status(source, sequence=0xffffffff, age_us=start_age),
+                            struct.pack('<Iddd', 0xffffffff, 7, 0, 0), struct.pack('<Iddd', 0xffffffff, -2, 0, 0),
+                            status(source, sequence=0, stamp=STAMP+10000, age_us=start_age)])
+            def reply(cmd, mid, payload):
+                if cmd == GET_FEEDBACK_SOURCE_VECTOR:
+                    self.assertEqual(struct.unpack('<II', payload[1:]), (11, 0xffffffff))
+                transport.inject(frame(cmd, mid, next(replies)))
+            board.command_hook = reply
+            value = client.read_feedback_source_snapshot()
+            self.assertEqual((value.status.timestamp_us, value.status.sequence, value.status.age_us,
+                              value.pose.x, value.twist.x), (STAMP, 0xffffffff, start_age+10000, 7, -2))
+
+    def test_cache_lifetime_source_specific_age_and_regressions(self):
+        client, transport, board = self.connect(protocol=21)
+        vector = struct.pack('<Iddd', 42, 7, 0, 0)
+        for source, start_age, delta, age, seq, limit in [
+            (1, 40000, 12000, 40000, 43, 50), (0, 150000, 60000, 150000, 43, 300),
+            (0, 50000, 12000, 49500, 43, 60), (2, 1000, -1, 1000, 43, 60), (2, 1000, 1000, 1000, 41, 60),
+        ]:
+            replies = iter([status(source, age_us=start_age), vector, vector,
+                            status(source, sequence=seq, stamp=STAMP+delta, age_us=age, limit_ms=limit)] * 3)
+            board.command_hook = lambda cmd, mid, payload: transport.inject(frame(cmd, mid, next(replies)))
+            with self.assertRaisesRegex(ProtocolError, 'coherent snapshot'):
+                client.read_feedback_source_snapshot()
+
     def test_unsafe_switch_older_boards_and_reconnect_are_actuator_free(self):
         client, transport, board = self.connect(protocol=21)
         self.assertTrue(client.supports_feedback_source_selector())
@@ -76,7 +106,7 @@ class FeedbackSourceTests(unittest.TestCase):
             self.assertFalse(client.supports_feedback_source_selector())
             before = len(transport.frames)
             for call in (lambda: client.set_feedback_source(2), client.get_feedback_source_status,
-                         lambda: client.get_feedback_source_vector(0), lambda: client.set_feedback_fusion_mount(0),
+                         lambda: client.get_feedback_source_vector(0, 11, 42), lambda: client.set_feedback_fusion_mount(0),
                          client.get_feedback_fusion_mount):
                 with self.assertRaises(ProtocolError):
                     call()
@@ -90,7 +120,12 @@ class FeedbackSourceTests(unittest.TestCase):
                 client.set_feedback_source(value)
         for value in (True, '0', -1, 2):
             with self.assertRaises(ValueError):
-                client.get_feedback_source_vector(value)
+                client.get_feedback_source_vector(value, 11, 42)
+        for value in (True, '0', -1, 0.5, 1 << 32):
+            with self.assertRaises(ValueError):
+                client.get_feedback_source_vector(0, value, 42)
+            with self.assertRaises(ValueError):
+                client.get_feedback_source_vector(1, 11, value)
         for value in (True, '0', math.nan, math.inf, 4):
             with self.assertRaises(ValueError):
                 client.set_feedback_fusion_mount(value)
@@ -103,7 +138,7 @@ class FeedbackSourceTests(unittest.TestCase):
         for data, method in ((status(2)[:-1], client.get_feedback_source_status),
                              (bytes([2, 1, 1]) + status(2)[3:], client.get_feedback_source_status),
                              (struct.pack('<Iddd', 42, 0, math.nan, 0),
-                              lambda: client.get_feedback_source_vector(FeedbackSourceVectorKind.TWIST)),
+                              lambda: client.get_feedback_source_vector(FeedbackSourceVectorKind.TWIST, 11, 42)),
                              (struct.pack('<Bd', 2, 0), client.get_feedback_fusion_mount)):
             client.reply = data
             with self.assertRaises(ValueError):

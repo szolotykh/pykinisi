@@ -931,9 +931,12 @@ class FeedbackSourceStatus:
     source_detail: Native IMU tracking or fusion fault code for the requested source; zero
     otherwise.
     age_us: Board-clock sample age in microseconds; UINT32_MAX when unavailable.
+    max_age_ms: Maximum eligible captured sample age in milliseconds for this source,
+    including the configured encoder period. Compare updated original sample age with the
+    smaller of its captured and current limits.
     """
 
-    def __init__(self, requested: int, active: int, valid: int, reason: int, sequence: int, timestamp_us: int, origin_id: int, source_detail: int, age_us: int):
+    def __init__(self, requested: int, active: int, valid: int, reason: int, sequence: int, timestamp_us: int, origin_id: int, source_detail: int, age_us: int, max_age_ms: int):
         """Store the fields of one controller payload."""
         self.requested = requested
         self.active = active
@@ -944,26 +947,28 @@ class FeedbackSourceStatus:
         self.origin_id = origin_id
         self.source_detail = source_detail
         self.age_us = age_us
+        self.max_age_ms = max_age_ms
 
     @staticmethod
     def get_size() -> int:
         """Return the encoded payload size, excluding the message header."""
-        return 25
+        return 27
 
     def encode(self) -> bytearray:
         """Encode every field using the packed little-endian wire layout."""
-        return bytearray(struct.pack('<BBBBIQIBI', self.requested, self.active, self.valid, self.reason, self.sequence, self.timestamp_us, self.origin_id, self.source_detail, self.age_us))
+        return bytearray(struct.pack('<BBBBIQIBIH', self.requested, self.active, self.valid, self.reason, self.sequence, self.timestamp_us, self.origin_id, self.source_detail, self.age_us, self.max_age_ms))
 
     @classmethod
     def decode(cls, payload: bytes) -> 'FeedbackSourceStatus':
         """Decode exactly one payload; reject truncation and trailing bytes."""
-        return cls(*_unpack_payload('<BBBBIQIBI', payload))
+        return cls(*_unpack_payload('<BBBBIQIBIH', payload))
 
 
 class FeedbackSourceVector:
     """Selected source vector in the selector pose frame or native body twist frame.
 
-    sequence: Underlying producer sequence. Bracket with status reads.
+    sequence: Exact producer sequence captured by status and requested by the vector
+    command.
     x: X coordinate or body X velocity.
     y: Y coordinate or body Y velocity.
     z: Continuous relative yaw or body yaw rate.
@@ -2628,28 +2633,37 @@ class KinisiCommands:
         payload = struct.pack('<')
         result = self._request(GET_FEEDBACK_SOURCE_STATUS, payload, FeedbackSourceStatus.get_size())
         sample = FeedbackSourceStatus.decode(result)
-        if (sample.requested > 2 or sample.valid > 1 or sample.reason > 9 or (sample.valid and (sample.active != sample.requested or sample.reason != 0)) or (not sample.valid and (sample.active != 255 or sample.reason == 0))):
+        if (sample.requested > 2 or sample.valid > 1 or sample.reason > 9 or (sample.valid and (sample.active != sample.requested or sample.reason != 0 or not sample.max_age_ms or sample.age_us > 1000 * sample.max_age_ms)) or (not sample.valid and (sample.active != 255 or sample.reason == 0 or sample.sequence != 0 or sample.timestamp_us != 0 or sample.age_us != 0xffffffff))):
             raise ValueError('Invalid feedback source status')
         return sample
 
-    def get_feedback_source_vector(self, kind: int) -> FeedbackSourceVector:
+    def get_feedback_source_vector(self, kind: int, origin_id: int, sequence: int) -> FeedbackSourceVector:
         """Get selector-relative pose (metres, metres, unwrapped radians) or body twist
         (metres/second, metres/second, radians/second), +X forward, +Y left, yaw CCW.
-        Relative XY is rotated into the heading at the new anchor. Bracket vectors with
-        valid status reads having identical requested/active source, origin_id, sequence and
-        timestamp_us; also match every vector sequence. Discard mismatches and retry.
-        Compare origins only within the same boot. Requires READY and exact model 1 hardware
-        0.4.0 with feedback_source_selector and protocol 2.21 or newer. Selection only
-        routes tracking telemetry.
+        Relative XY is rotated into the heading at the new anchor. First capture a valid
+        status, then request both vectors with its exact origin_id and sequence. Eight
+        distinct recent captures are retained for at most 50000 us after capture. Both keys
+        and the current healthy source/frame must match. Selected historical sample age
+        cannot exceed 50000 us for IMU-only, 60000 us for fused, or three configured encoder
+        periods. Expiry or invalidation immediately rejects cached data. A final live status
+        may naturally advance sequence and time; require the same valid requested/active
+        source and origin, match both vector sequences to the original capture and retry on
+        SAMPLE_NOT_AVAILABLE. Compare origins only within the same boot. Requires READY and
+        exact model 1 hardware 0.4.0 with feedback_source_selector and protocol 2.21 or
+        newer. Selection only routes tracking telemetry.
 
         kind: FeedbackSourceVectorKind value.
+        origin_id: Frame generation captured by GET_FEEDBACK_SOURCE_STATUS.
+        sequence: Exact source sample sequence captured by GET_FEEDBACK_SOURCE_STATUS.
 
         Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
         SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, SAMPLE_NOT_AVAILABLE.
         """
         if isinstance(kind, bool) or not isinstance(kind, int) or kind not in (0, 1):
             raise ValueError('Invalid feedback vector kind')
-        payload = struct.pack('<B', kind)
+        if any(type(value) is not int or not 0 <= value <= 0xffffffff for value in (origin_id, sequence)):
+            raise ValueError('Invalid feedback sample key')
+        payload = struct.pack('<BII', kind, origin_id, sequence)
         result = self._request(GET_FEEDBACK_SOURCE_VECTOR, payload, FeedbackSourceVector.get_size())
         sample = FeedbackSourceVector.decode(result)
         if not all(math.isfinite(value) for value in (sample.x, sample.y, sample.z)):

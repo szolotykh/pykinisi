@@ -2848,7 +2848,7 @@
       "code": "0x69",
       "direction": "client_to_controller",
       "category": "Feedback source",
-      "description": "Get selector-relative pose (metres, metres, unwrapped radians) or body twist (metres/second, metres/second, radians/second), +X forward, +Y left, yaw CCW. Relative XY is rotated into the heading at the new anchor. Bracket vectors with valid status reads having identical requested/active source, origin_id, sequence and timestamp_us; also match every vector sequence. Discard mismatches and retry. Compare origins only within the same boot. Requires READY and exact model 1 hardware 0.4.0 with feedback_source_selector and protocol 2.21 or newer. Selection only routes tracking telemetry.",
+      "description": "Get selector-relative pose (metres, metres, unwrapped radians) or body twist (metres/second, metres/second, radians/second), +X forward, +Y left, yaw CCW. Relative XY is rotated into the heading at the new anchor. First capture a valid status, then request both vectors with its exact origin_id and sequence. Eight distinct recent captures are retained for at most 50000 us after capture. Both keys and the current healthy source/frame must match. Selected historical sample age cannot exceed 50000 us for IMU-only, 60000 us for fused, or three configured encoder periods. Expiry or invalidation immediately rejects cached data. A final live status may naturally advance sequence and time; require the same valid requested/active source and origin, match both vector sequences to the original capture and retry on SAMPLE_NOT_AVAILABLE. Compare origins only within the same boot. Requires READY and exact model 1 hardware 0.4.0 with feedback_source_selector and protocol 2.21 or newer. Selection only routes tracking telemetry.",
       "properties": [
         {
           "name": "kind",
@@ -2858,6 +2858,16 @@
             0,
             1
           ]
+        },
+        {
+          "name": "origin_id",
+          "type": "uint32_t",
+          "description": "Frame generation captured by GET_FEEDBACK_SOURCE_STATUS."
+        },
+        {
+          "name": "sequence",
+          "type": "uint32_t",
+          "description": "Exact source sample sequence captured by GET_FEEDBACK_SOURCE_STATUS."
         }
       ],
       "errors": [
@@ -3690,6 +3700,11 @@
           "name": "age_us",
           "type": "uint32_t",
           "description": "Board-clock sample age in microseconds; UINT32_MAX when unavailable."
+        },
+        {
+          "name": "max_age_ms",
+          "type": "uint16_t",
+          "description": "Maximum eligible captured sample age in milliseconds for this source, including the configured encoder period. Compare updated original sample age with the smaller of its captured and current limits."
         }
       ]
     },
@@ -3700,7 +3715,7 @@
         {
           "name": "sequence",
           "type": "uint32_t",
-          "description": "Underlying producer sequence. Bracket with status reads."
+          "description": "Exact producer sequence captured by status and requested by the vector command."
         },
         {
           "name": "x",

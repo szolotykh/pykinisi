@@ -329,6 +329,7 @@ def _generate_method(cmd, objects):
         result += "        if isinstance(source, bool) or not isinstance(source, int) or source not in (0, 1, 2):\n            raise ValueError('Invalid feedback source')\n"
     if cmd['command'] == 'GET_FEEDBACK_SOURCE_VECTOR':
         result += "        if isinstance(kind, bool) or not isinstance(kind, int) or kind not in (0, 1):\n            raise ValueError('Invalid feedback vector kind')\n"
+        result += "        if any(type(value) is not int or not 0 <= value <= 0xffffffff for value in (origin_id, sequence)):\n            raise ValueError('Invalid feedback sample key')\n"
     if cmd['command'] == 'SET_FEEDBACK_FUSION_MOUNT':
         result += "        if isinstance(mounting_yaw_rad, bool) or not isinstance(mounting_yaw_rad, (float, int)) or not math.isfinite(mounting_yaw_rad) or abs(mounting_yaw_rad) > math.pi:\n            raise ValueError('Invalid feedback fusion mounting yaw')\n"
     if cmd['command'] == 'SET_IMU_TRACKING':
@@ -364,7 +365,7 @@ def _generate_method(cmd, objects):
     if cmd['command'].startswith('GET_FEEDBACK_'):
         result += f"        sample = {get_object_name(obj)}.decode(result)\n"
         if cmd['command'] == 'GET_FEEDBACK_SOURCE_STATUS':
-            result += "        if (sample.requested > 2 or sample.valid > 1 or sample.reason > 9 or (sample.valid and (sample.active != sample.requested or sample.reason != 0)) or (not sample.valid and (sample.active != 255 or sample.reason == 0))):\n            raise ValueError('Invalid feedback source status')\n"
+            result += "        if (sample.requested > 2 or sample.valid > 1 or sample.reason > 9 or (sample.valid and (sample.active != sample.requested or sample.reason != 0 or not sample.max_age_ms or sample.age_us > 1000 * sample.max_age_ms)) or (not sample.valid and (sample.active != 255 or sample.reason == 0 or sample.sequence != 0 or sample.timestamp_us != 0 or sample.age_us != 0xffffffff))):\n            raise ValueError('Invalid feedback source status')\n"
         elif cmd['command'] == 'GET_FEEDBACK_FUSION_MOUNT':
             result += "        if sample.confirmed > 1 or not math.isfinite(sample.mounting_yaw_rad) or abs(sample.mounting_yaw_rad) > math.pi:\n            raise ValueError('Invalid feedback fusion mount')\n"
         else:

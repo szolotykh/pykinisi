@@ -452,8 +452,20 @@ The board reports `requested`, `active`, `valid`, `reason` and the native
 loss, a change in `origin_id`, or reconnect. Pose uses metres and continuous radians
 relative to the selector origin. Twist uses chassis forward/left metres per second
 and counterclockwise radians per second. The producer supplies `sequence` and the
-board-monotonic acquisition `timestamp_us`. `age_us` is the board's measured sample
-age, with `UINT32_MAX` for unavailable. Read current status after reconnect.
+board-monotonic acquisition `timestamp_us`. Raw status reports `age_us` at capture.
+The snapshot helper returns the original sequence, timestamp and vectors, with
+the original sample's age calculated at the confirming status read from the two
+board timestamps and the board-reported age. `UINT32_MAX` means unavailable.
+
+When using raw commands, capture status first and pass its `origin_id` and
+`sequence` to both `get_feedback_source_vector(kind, origin_id, sequence)` calls.
+Confirm the same healthy source and origin with a final status read. Normal
+publication advances may occur between requests. The board retains eight distinct
+captures for up to 50 ms and rechecks producer eligibility for both vector reads.
+Compare the original sample's current age with the smaller `max_age_ms` from
+the two status reads, converting milliseconds to microseconds. An encoder's
+source-age limit is three configured odometry periods. Read current status after
+reconnect.
 
 Only explicit `save_configuration()` persists the requested preference with the
 rest of the running setup. Reboot requires a fresh mount or calibration as applicable.

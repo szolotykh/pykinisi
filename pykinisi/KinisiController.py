@@ -244,7 +244,7 @@ class KinisiController(KinisiCommands):
     def read_feedback_source_snapshot(self):
         """Bracket pose and twist with board status. Invalid status has no vectors."""
         session = self._session
-        fields = ('requested', 'active', 'origin_id', 'sequence', 'timestamp_us')
+        fields = ('requested', 'active', 'origin_id')
         for _ in range(3):
             first = self.get_feedback_source_status()
             if session != self._session or not self.ready:
@@ -253,8 +253,8 @@ class KinisiController(KinisiCommands):
                 return FeedbackSourceSnapshot(first, None, None)
             pose = twist = None
             try:
-                pose = self.get_feedback_source_vector(FeedbackSourceVectorKind.POSE)
-                twist = self.get_feedback_source_vector(FeedbackSourceVectorKind.TWIST)
+                pose = self.get_feedback_source_vector(FeedbackSourceVectorKind.POSE, first.origin_id, first.sequence)
+                twist = self.get_feedback_source_vector(FeedbackSourceVectorKind.TWIST, first.origin_id, first.sequence)
             except ControllerError as error:
                 if error.error_code != ErrorCode.SAMPLE_NOT_AVAILABLE:
                     raise
@@ -263,9 +263,18 @@ class KinisiController(KinisiCommands):
                 raise ConnectionClosedError('Controller session changed')
             if not status.valid:
                 return FeedbackSourceSnapshot(status, None, None)
-            if (pose is not None and twist is not None and pose.sequence == twist.sequence == status.sequence and
-                    all(getattr(first, field) == getattr(status, field) for field in fields)):
-                return FeedbackSourceSnapshot(status, pose, twist)
+            if (pose is None or twist is None or pose.sequence != first.sequence or twist.sequence != first.sequence or
+                    any(getattr(first, field) != getattr(status, field) for field in fields)):
+                continue
+            advance = (status.sequence - first.sequence) & 0xffffffff
+            tick = status.timestamp_us - first.timestamp_us
+            if advance >= 0x80000000 or tick < 0 or (advance == 0) != (tick == 0):
+                continue
+            age_at_check = tick + status.age_us
+            elapsed = age_at_check - first.age_us
+            if 0 <= elapsed <= 50000 and age_at_check <= 1000 * min(first.max_age_ms, status.max_age_ms):
+                first.age_us = age_at_check
+                return FeedbackSourceSnapshot(first, pose, twist)
         raise ProtocolError('Feedback source changed during read. No coherent snapshot available.')
 
     def supports_imu_tracking(self):
