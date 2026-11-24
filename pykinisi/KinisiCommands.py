@@ -9,7 +9,7 @@ import struct
 from enum import IntEnum
 
 
-PROTOCOL_VERSION = (2, 20, 0)
+PROTOCOL_VERSION = (2, 21, 0)
 
 GET_TEMPERATURE = 0x50
 GET_IMU = 0x51
@@ -106,6 +106,11 @@ SET_IMU_TRACKING = 0x63
 GET_IMU_TRACKING_STATUS = 0x64
 GET_IMU_TRACKING_VECTOR = 0x65
 GET_IMU_TRACKING_CONFIGURATION = 0x66
+SET_FEEDBACK_SOURCE = 0x67
+GET_FEEDBACK_SOURCE_STATUS = 0x68
+GET_FEEDBACK_SOURCE_VECTOR = 0x69
+SET_FEEDBACK_FUSION_MOUNT = 0x6A
+GET_FEEDBACK_FUSION_MOUNT = 0x6B
 
 
 class ErrorCode(IntEnum):
@@ -131,6 +136,7 @@ class ErrorCode(IntEnum):
     SAMPLE_OUT_OF_RANGE = 18
     DRIVERS_ASLEEP = 19
     BOARD_IDLE = 20
+    SOURCE_SWITCH_UNSAFE = 21
 
 
 ERROR_DESCRIPTIONS = {
@@ -154,6 +160,7 @@ ERROR_DESCRIPTIONS = {
     18: 'The sensor reading is saturated; no valid measurement can be returned.',
     19: 'Driver sleep is active. Explicitly wake the drivers before requesting this operation.',
     20: 'Board idle is active. Explicitly wake the board before changing driver sleep or starting a subscription.',
+    21: 'Stop all motor outputs, disarm all controllers and wait for stationary wheel observations before changing the tracking preference.',
 }
 
 
@@ -910,6 +917,108 @@ class ImuTrackingConfiguration:
         return cls(*_unpack_payload('<dI', payload))
 
 
+class FeedbackSourceStatus:
+    """Board-wide selected tracking telemetry status.
+
+    requested: Requested FeedbackSource.
+    active: Active FeedbackSource, NONE while invalid.
+    valid: One when a current source snapshot is available, otherwise zero.
+    reason: FeedbackSourceReason.
+    sequence: Underlying sample sequence when valid; zero when invalid.
+    timestamp_us: Underlying monotonic board sample time; zero when invalid.
+    origin_id: Board-local frame generation. Discard prior coordinates on change or board
+    reboot.
+    source_detail: Native IMU tracking or fusion fault code for the requested source; zero
+    otherwise.
+    age_us: Board-clock sample age in microseconds; UINT32_MAX when unavailable.
+    """
+
+    def __init__(self, requested: int, active: int, valid: int, reason: int, sequence: int, timestamp_us: int, origin_id: int, source_detail: int, age_us: int):
+        """Store the fields of one controller payload."""
+        self.requested = requested
+        self.active = active
+        self.valid = valid
+        self.reason = reason
+        self.sequence = sequence
+        self.timestamp_us = timestamp_us
+        self.origin_id = origin_id
+        self.source_detail = source_detail
+        self.age_us = age_us
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 25
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<BBBBIQIBI', self.requested, self.active, self.valid, self.reason, self.sequence, self.timestamp_us, self.origin_id, self.source_detail, self.age_us))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'FeedbackSourceStatus':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<BBBBIQIBI', payload))
+
+
+class FeedbackSourceVector:
+    """Selected source vector in the selector pose frame or native body twist frame.
+
+    sequence: Underlying producer sequence. Bracket with status reads.
+    x: X coordinate or body X velocity.
+    y: Y coordinate or body Y velocity.
+    z: Continuous relative yaw or body yaw rate.
+    """
+
+    def __init__(self, sequence: int, x: float, y: float, z: float):
+        """Store the fields of one controller payload."""
+        self.sequence = sequence
+        self.x = x
+        self.y = y
+        self.z = z
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 28
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<Iddd', self.sequence, self.x, self.y, self.z))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'FeedbackSourceVector':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<Iddd', payload))
+
+
+class FeedbackFusionMount:
+    """Passive tracking mount, independent of chassis control.
+
+    confirmed: One after an explicit mount declaration this boot.
+    mounting_yaw_rad: Angle of board +X in chassis XY, counterclockwise about +Z in radians.
+    Rigid, level, centered board with +Z up.
+    """
+
+    def __init__(self, confirmed: int, mounting_yaw_rad: float):
+        """Store the fields of one controller payload."""
+        self.confirmed = confirmed
+        self.mounting_yaw_rad = mounting_yaw_rad
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 9
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<Bd', self.confirmed, self.mounting_yaw_rad))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'FeedbackFusionMount':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<Bd', payload))
+
+
 class SubscriptionMode(IntEnum):
     """Delivery behavior for a generic telemetry subscription."""
     PERIODIC = 0
@@ -1014,6 +1123,31 @@ class ImuTrackingVectorKind(IntEnum):
     POSE = 0
     TWIST = 1
     BIAS = 2
+
+
+class FeedbackSource(IntEnum):
+    ENCODER = 0
+    IMU_ONLY = 1
+    FUSED = 2
+    NONE = 255
+
+
+class FeedbackSourceReason(IntEnum):
+    OK = 0
+    NOT_STARTED = 1
+    CALIBRATING = 2
+    UNAVAILABLE = 3
+    STALE = 4
+    EXPIRED = 5
+    FAULT = 6
+    INHIBITED = 7
+    WAITING_SAMPLE = 8
+    MOUNT_REQUIRED = 9
+
+
+class FeedbackSourceVectorKind(IntEnum):
+    POSE = 0
+    TWIST = 1
 
 
 EVENT_TOPICS = (6,)
@@ -2453,5 +2587,104 @@ class KinisiCommands:
         sample = ImuTrackingConfiguration.decode(result)
         if not math.isfinite(sample.mounting_yaw_rad) or abs(sample.mounting_yaw_rad) > math.pi or sample.window_us == 0:
             raise ValueError('Invalid IMU tracking configuration')
+        return sample
+
+    def set_feedback_source(self, source: int) -> None:
+        """Choose the board-wide telemetry preference. A change requires stopped outputs,
+        disarmed controllers and stationary observed encoders. An unchanged preference is
+        idempotent. The selector never starts motion, wheel odometry, standalone IMU
+        calibration or a controller. FUSED uses an independent passive instance of the
+        release estimator when its explicit mount and encoder odometry are available. It
+        anchors a new relative frame at the first available source sample serviced after a
+        switch or producer restart. The existing SAVE_CONFIGURATION explicitly persists the
+        preference alongside platform setup; cold restore never restores an origin, bias,
+        stationary declaration or motion target. Requires READY and exact model 1 hardware
+        0.4.0 with feedback_source_selector and protocol 2.21 or newer. Selection only
+        routes tracking telemetry.
+
+        source: FeedbackSource value (NONE is read-only).
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, SOURCE_SWITCH_UNSAFE.
+        """
+        if isinstance(source, bool) or not isinstance(source, int) or source not in (0, 1, 2):
+            raise ValueError('Invalid feedback source')
+        payload = struct.pack('<B', source)
+        result = self._request(SET_FEEDBACK_SOURCE, payload, 0)
+
+    def get_feedback_source_status(self) -> FeedbackSourceStatus:
+        """Get requested and active source, availability reason and producer detail. Invalid
+        status reports active NONE; no fallback. While valid the sample sequence and
+        monotonic timestamp identify the underlying producer publication. Inspect requested
+        source diagnostics for acquisition ages and fault detail. The standalone IMU is a
+        one-second relative motion-onset diagnostic; fused telemetry uses the existing
+        experimental estimator. Reconnect reads live board state. Requires READY and exact
+        model 1 hardware 0.4.0 with feedback_source_selector and protocol 2.21 or newer.
+        Selection only routes tracking telemetry.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
+        """
+        payload = struct.pack('<')
+        result = self._request(GET_FEEDBACK_SOURCE_STATUS, payload, FeedbackSourceStatus.get_size())
+        sample = FeedbackSourceStatus.decode(result)
+        if (sample.requested > 2 or sample.valid > 1 or sample.reason > 9 or (sample.valid and (sample.active != sample.requested or sample.reason != 0)) or (not sample.valid and (sample.active != 255 or sample.reason == 0))):
+            raise ValueError('Invalid feedback source status')
+        return sample
+
+    def get_feedback_source_vector(self, kind: int) -> FeedbackSourceVector:
+        """Get selector-relative pose (metres, metres, unwrapped radians) or body twist
+        (metres/second, metres/second, radians/second), +X forward, +Y left, yaw CCW.
+        Relative XY is rotated into the heading at the new anchor. Bracket vectors with
+        valid status reads having identical requested/active source, origin_id, sequence and
+        timestamp_us; also match every vector sequence. Discard mismatches and retry.
+        Compare origins only within the same boot. Requires READY and exact model 1 hardware
+        0.4.0 with feedback_source_selector and protocol 2.21 or newer. Selection only
+        routes tracking telemetry.
+
+        kind: FeedbackSourceVectorKind value.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, SAMPLE_NOT_AVAILABLE.
+        """
+        if isinstance(kind, bool) or not isinstance(kind, int) or kind not in (0, 1):
+            raise ValueError('Invalid feedback vector kind')
+        payload = struct.pack('<B', kind)
+        result = self._request(GET_FEEDBACK_SOURCE_VECTOR, payload, FeedbackSourceVector.get_size())
+        sample = FeedbackSourceVector.decode(result)
+        if not all(math.isfinite(value) for value in (sample.x, sample.y, sample.z)):
+            raise ValueError('Invalid feedback vector')
+        return sample
+
+    def set_feedback_fusion_mount(self, mounting_yaw_rad: float) -> None:
+        """Confirm a rigid centered level board mount for passive fused telemetry, with finite
+        board yaw in [-pi,pi]. Requires stopped outputs and disarmed controllers. Each
+        successful command discards prior passive calibration and pose; the observer
+        requires fresh stationary observations. This volatile setting applies only to
+        passive telemetry. Requires READY, exact v0.4 and protocol 2.21+.
+
+        mounting_yaw_rad: Angle of board +X in chassis XY, counterclockwise about +Z in
+        radians. Rigid, level, centered board with +Z up.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, SOURCE_SWITCH_UNSAFE.
+        """
+        if isinstance(mounting_yaw_rad, bool) or not isinstance(mounting_yaw_rad, (float, int)) or not math.isfinite(mounting_yaw_rad) or abs(mounting_yaw_rad) > math.pi:
+            raise ValueError('Invalid feedback fusion mounting yaw')
+        payload = struct.pack('<d', mounting_yaw_rad)
+        result = self._request(SET_FEEDBACK_FUSION_MOUNT, payload, 0)
+
+    def get_feedback_fusion_mount(self) -> FeedbackFusionMount:
+        """Read the explicit volatile passive fusion mounting confirmation and board yaw. Reset
+        clears confirmation. Requires READY, exact v0.4 and protocol 2.21+.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
+        """
+        payload = struct.pack('<')
+        result = self._request(GET_FEEDBACK_FUSION_MOUNT, payload, FeedbackFusionMount.get_size())
+        sample = FeedbackFusionMount.decode(result)
+        if sample.confirmed > 1 or not math.isfinite(sample.mounting_yaw_rad) or abs(sample.mounting_yaw_rad) > math.pi:
+            raise ValueError('Invalid feedback fusion mount')
         return sample
 

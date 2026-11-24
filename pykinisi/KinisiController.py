@@ -19,6 +19,8 @@ from .KinisiCommands import (
     PING, SET_HEARTBEAT_CONFIG, SUBSCRIBE_ODOMETRY, UNSUBSCRIBE_ODOMETRY,
     ENCODER_ODOMETRY_EVENT, PLATFORM_ODOMETRY_EVENT,
     EncoderOdometrySample, PlatformOdometrySample, GET_TEMPERATURE, GET_IMU, GET_MOTOR_CURRENT, GET_MOTOR_FAULTS, CLEAR_MOTOR_FAULTS, GET_PWM_FREQUENCY, SET_PWM_FREQUENCY, GET_MOTOR_CURRENT_LIMIT, SET_MOTOR_CURRENT_LIMIT,
+    FeedbackSourceVectorKind, FeedbackSourceStatus, FeedbackSourceVector,
+    SET_FEEDBACK_SOURCE, GET_FEEDBACK_SOURCE_STATUS, GET_FEEDBACK_SOURCE_VECTOR, SET_FEEDBACK_FUSION_MOUNT, GET_FEEDBACK_FUSION_MOUNT,
     SET_IMU_TRACKING, GET_IMU_TRACKING_STATUS, GET_IMU_TRACKING_VECTOR, GET_IMU_TRACKING_CONFIGURATION,
     SET_FUSION_EXPERIMENT, GET_FUSION_STATUS, GET_FUSION_VECTOR, GET_FUSION_CONFIGURATION,
     SAVE_CONFIGURATION, GET_CONFIGURATION_FIELD, SET_DRIVER_SLEEP, GET_DRIVER_SLEEP, SET_BOARD_IDLE, GET_BOARD_IDLE,
@@ -134,6 +136,14 @@ class Subscription:
         self.unsubscribe()
 
 
+@dataclass(frozen=True)
+class FeedbackSourceSnapshot:
+    """One verified board observation in native relative-world and body frames."""
+    status: FeedbackSourceStatus
+    pose: 'FeedbackSourceVector | None'
+    twist: 'FeedbackSourceVector | None'
+
+
 class KinisiController(KinisiCommands):
     """A protocol-v2 serial client; disconnect or use a context manager when finished."""
 
@@ -220,6 +230,43 @@ class KinisiController(KinisiCommands):
                         (info.board_model, info.board_major, info.board_minor, info.board_patch) == (1, 0, 4, 0) and
                         info.protocol_major == 2 and info.protocol_minor >= 19 and
                         profile.get('capabilities', {}).get('fusion_experiment') is True)
+
+    def supports_feedback_source_selector(self):
+        """Require the exact board capability and READY protocol 2.21+."""
+        with self._lock:
+            info = self.board_info
+            profile = self.board_profile
+            return bool(self.ready and info and profile and
+                        (info.board_model, info.board_major, info.board_minor, info.board_patch) == (1, 0, 4, 0) and
+                        info.protocol_major == 2 and 21 <= info.protocol_minor <= 255 and
+                        profile.get('capabilities', {}).get('feedback_source_selector') is True)
+
+    def read_feedback_source_snapshot(self):
+        """Bracket pose and twist with board status. Invalid status has no vectors."""
+        session = self._session
+        fields = ('requested', 'active', 'origin_id', 'sequence', 'timestamp_us')
+        for _ in range(3):
+            first = self.get_feedback_source_status()
+            if session != self._session or not self.ready:
+                raise ConnectionClosedError('Controller session changed')
+            if not first.valid:
+                return FeedbackSourceSnapshot(first, None, None)
+            pose = twist = None
+            try:
+                pose = self.get_feedback_source_vector(FeedbackSourceVectorKind.POSE)
+                twist = self.get_feedback_source_vector(FeedbackSourceVectorKind.TWIST)
+            except ControllerError as error:
+                if error.error_code != ErrorCode.SAMPLE_NOT_AVAILABLE:
+                    raise
+            status = self.get_feedback_source_status()
+            if session != self._session or not self.ready:
+                raise ConnectionClosedError('Controller session changed')
+            if not status.valid:
+                return FeedbackSourceSnapshot(status, None, None)
+            if (pose is not None and twist is not None and pose.sequence == twist.sequence == status.sequence and
+                    all(getattr(first, field) == getattr(status, field) for field in fields)):
+                return FeedbackSourceSnapshot(status, pose, twist)
+        raise ProtocolError('Feedback source changed during read. No coherent snapshot available.')
 
     def supports_imu_tracking(self):
         """Opt-in experiment on exact v0.4.0 and compatible protocol 2.20+."""
@@ -483,6 +530,8 @@ class KinisiController(KinisiCommands):
                 raise ProtocolError('Configuration storage requires a ready v0.4 controller running protocol 2.14 or newer')
             if command in (SET_DRIVER_SLEEP, GET_DRIVER_SLEEP) and not self.supports_driver_sleep():
                 raise ProtocolError('Driver sleep requires READY and a supported board: v0.3/Nano protocol 2.17+, v0.4 protocol 2.15+')
+            if command in (SET_FEEDBACK_SOURCE, GET_FEEDBACK_SOURCE_STATUS, GET_FEEDBACK_SOURCE_VECTOR, SET_FEEDBACK_FUSION_MOUNT, GET_FEEDBACK_FUSION_MOUNT) and not self.supports_feedback_source_selector():
+                raise ProtocolError('Feedback source selector requires READY, exact v0.4.0 capability and protocol 2.21+')
             if command in (SET_IMU_TRACKING, GET_IMU_TRACKING_STATUS, GET_IMU_TRACKING_VECTOR, GET_IMU_TRACKING_CONFIGURATION) and not self.supports_imu_tracking():
                 raise ProtocolError('IMU tracking requires READY, exact v0.4.0 capability and protocol 2.20+')
             if command in (SET_FUSION_EXPERIMENT, GET_FUSION_STATUS, GET_FUSION_VECTOR, GET_FUSION_CONFIGURATION) and not self.supports_fusion_experiment():

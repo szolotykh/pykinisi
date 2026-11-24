@@ -17,7 +17,7 @@ class ImuTrackingTests(unittest.TestCase):
         from test_generator import generator, ROOT, load_module
         schema = json.loads((ROOT / 'tools/commands.json').read_text(encoding='utf-8'))
         generator.validate_imu_tracking(schema)
-        for mutate in (lambda s: s['commands'].pop(), lambda s: s['imu_tracking_states'][0].update(id=True)):
+        for mutate in (lambda s: s['commands'].remove(next(c for c in s['commands'] if c['command'] == 'GET_IMU_TRACKING_CONFIGURATION')), lambda s: s['imu_tracking_states'][0].update(id=True)):
             broken=deepcopy(schema); mutate(broken)
             with self.assertRaises(ValueError): generator.validate_imu_tracking(broken)
         updater=load_module('tracking_profile_updater',ROOT / 'tools/update-board-profiles.py')

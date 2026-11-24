@@ -1,5 +1,5 @@
 {
-  "version": "2.20.0",
+  "version": "2.21.0",
   "commands": [
     {
       "command": "GET_TEMPERATURE",
@@ -2793,6 +2793,137 @@
         "direction": "controller_to_client",
         "description": "Packed little-endian IMU-only tracking snapshot."
       }
+    },
+    {
+      "command": "SET_FEEDBACK_SOURCE",
+      "code": "0x67",
+      "direction": "client_to_controller",
+      "category": "Feedback source",
+      "description": "Choose the board-wide telemetry preference. A change requires stopped outputs, disarmed controllers and stationary observed encoders. An unchanged preference is idempotent. The selector never starts motion, wheel odometry, standalone IMU calibration or a controller. FUSED uses an independent passive instance of the release estimator when its explicit mount and encoder odometry are available. It anchors a new relative frame at the first available source sample serviced after a switch or producer restart. The existing SAVE_CONFIGURATION explicitly persists the preference alongside platform setup; cold restore never restores an origin, bias, stationary declaration or motion target. Requires READY and exact model 1 hardware 0.4.0 with feedback_source_selector and protocol 2.21 or newer. Selection only routes tracking telemetry.",
+      "properties": [
+        {
+          "name": "source",
+          "type": "uint8_t",
+          "description": "FeedbackSource value (NONE is read-only).",
+          "range": [
+            0,
+            2
+          ]
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR",
+        "SOURCE_SWITCH_UNSAFE"
+      ]
+    },
+    {
+      "command": "GET_FEEDBACK_SOURCE_STATUS",
+      "code": "0x68",
+      "direction": "client_to_controller",
+      "category": "Feedback source",
+      "description": "Get requested and active source, availability reason and producer detail. Invalid status reports active NONE; no fallback. While valid the sample sequence and monotonic timestamp identify the underlying producer publication. Inspect requested source diagnostics for acquisition ages and fault detail. The standalone IMU is a one-second relative motion-onset diagnostic; fused telemetry uses the existing experimental estimator. Reconnect reads live board state. Requires READY and exact model 1 hardware 0.4.0 with feedback_source_selector and protocol 2.21 or newer. Selection only routes tracking telemetry.",
+      "properties": [],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR"
+      ],
+      "response": {
+        "name": "feedback_source_status",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Packed little-endian selector readback."
+      }
+    },
+    {
+      "command": "GET_FEEDBACK_SOURCE_VECTOR",
+      "code": "0x69",
+      "direction": "client_to_controller",
+      "category": "Feedback source",
+      "description": "Get selector-relative pose (metres, metres, unwrapped radians) or body twist (metres/second, metres/second, radians/second), +X forward, +Y left, yaw CCW. Relative XY is rotated into the heading at the new anchor. Bracket vectors with valid status reads having identical requested/active source, origin_id, sequence and timestamp_us; also match every vector sequence. Discard mismatches and retry. Compare origins only within the same boot. Requires READY and exact model 1 hardware 0.4.0 with feedback_source_selector and protocol 2.21 or newer. Selection only routes tracking telemetry.",
+      "properties": [
+        {
+          "name": "kind",
+          "type": "uint8_t",
+          "description": "FeedbackSourceVectorKind value.",
+          "range": [
+            0,
+            1
+          ]
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR",
+        "SAMPLE_NOT_AVAILABLE"
+      ],
+      "response": {
+        "name": "feedback_source_vector",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Packed little-endian selector readback."
+      }
+    },
+    {
+      "command": "SET_FEEDBACK_FUSION_MOUNT",
+      "code": "0x6a",
+      "direction": "client_to_controller",
+      "category": "Feedback source",
+      "description": "Confirm a rigid centered level board mount for passive fused telemetry, with finite board yaw in [-pi,pi]. Requires stopped outputs and disarmed controllers. Each successful command discards prior passive calibration and pose; the observer requires fresh stationary observations. This volatile setting applies only to passive telemetry. Requires READY, exact v0.4 and protocol 2.21+.",
+      "properties": [
+        {
+          "name": "mounting_yaw_rad",
+          "type": "double",
+          "description": "Angle of board +X in chassis XY, counterclockwise about +Z in radians. Rigid, level, centered board with +Z up.",
+          "range": [
+            -3.141592653589793,
+            3.141592653589793
+          ]
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR",
+        "SOURCE_SWITCH_UNSAFE"
+      ]
+    },
+    {
+      "command": "GET_FEEDBACK_FUSION_MOUNT",
+      "code": "0x6b",
+      "direction": "client_to_controller",
+      "category": "Feedback source",
+      "description": "Read the explicit volatile passive fusion mounting confirmation and board yaw. Reset clears confirmation. Requires READY, exact v0.4 and protocol 2.21+.",
+      "properties": [],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR"
+      ],
+      "response": {
+        "name": "feedback_fusion_mount",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Packed little-endian selector readback."
+      }
     }
   ],
   "objects": [
@@ -3510,6 +3641,99 @@
           "description": "Actual source tracking horizon in microseconds; 1000000 for this v0.4 release. Eligible source times are [origin, origin + window_us)."
         }
       ]
+    },
+    {
+      "name": "feedback_source_status",
+      "description": "Board-wide selected tracking telemetry status.",
+      "properties": [
+        {
+          "name": "requested",
+          "type": "uint8_t",
+          "description": "Requested FeedbackSource."
+        },
+        {
+          "name": "active",
+          "type": "uint8_t",
+          "description": "Active FeedbackSource, NONE while invalid."
+        },
+        {
+          "name": "valid",
+          "type": "uint8_t",
+          "description": "One when a current source snapshot is available, otherwise zero."
+        },
+        {
+          "name": "reason",
+          "type": "uint8_t",
+          "description": "FeedbackSourceReason."
+        },
+        {
+          "name": "sequence",
+          "type": "uint32_t",
+          "description": "Underlying sample sequence when valid; zero when invalid."
+        },
+        {
+          "name": "timestamp_us",
+          "type": "uint64_t",
+          "description": "Underlying monotonic board sample time; zero when invalid."
+        },
+        {
+          "name": "origin_id",
+          "type": "uint32_t",
+          "description": "Board-local frame generation. Discard prior coordinates on change or board reboot."
+        },
+        {
+          "name": "source_detail",
+          "type": "uint8_t",
+          "description": "Native IMU tracking or fusion fault code for the requested source; zero otherwise."
+        },
+        {
+          "name": "age_us",
+          "type": "uint32_t",
+          "description": "Board-clock sample age in microseconds; UINT32_MAX when unavailable."
+        }
+      ]
+    },
+    {
+      "name": "feedback_source_vector",
+      "description": "Selected source vector in the selector pose frame or native body twist frame.",
+      "properties": [
+        {
+          "name": "sequence",
+          "type": "uint32_t",
+          "description": "Underlying producer sequence. Bracket with status reads."
+        },
+        {
+          "name": "x",
+          "type": "double",
+          "description": "X coordinate or body X velocity."
+        },
+        {
+          "name": "y",
+          "type": "double",
+          "description": "Y coordinate or body Y velocity."
+        },
+        {
+          "name": "z",
+          "type": "double",
+          "description": "Continuous relative yaw or body yaw rate."
+        }
+      ]
+    },
+    {
+      "name": "feedback_fusion_mount",
+      "description": "Passive tracking mount, independent of chassis control.",
+      "properties": [
+        {
+          "name": "confirmed",
+          "type": "uint8_t",
+          "description": "One after an explicit mount declaration this boot."
+        },
+        {
+          "name": "mounting_yaw_rad",
+          "type": "double",
+          "description": "Angle of board +X in chassis XY, counterclockwise about +Z in radians. Rigid, level, centered board with +Z up."
+        }
+      ]
     }
   ],
   "header": {
@@ -3629,6 +3853,11 @@
       "code": 20,
       "name": "BOARD_IDLE",
       "description": "Board idle is active. Explicitly wake the board before changing driver sleep or starting a subscription."
+    },
+    {
+      "code": 21,
+      "name": "SOURCE_SWITCH_UNSAFE",
+      "description": "Stop all motor outputs, disarm all controllers and wait for stationary wheel observations before changing the tracking preference."
     }
   ],
   "topics": [
@@ -3996,6 +4225,92 @@
       "id": 2,
       "name": "BIAS",
       "description": "Bias"
+    }
+  ],
+  "feedback_sources": [
+    {
+      "id": 0,
+      "name": "ENCODER",
+      "description": "Encoder"
+    },
+    {
+      "id": 1,
+      "name": "IMU_ONLY",
+      "description": "Imu only"
+    },
+    {
+      "id": 2,
+      "name": "FUSED",
+      "description": "Fused"
+    },
+    {
+      "id": 255,
+      "name": "NONE",
+      "description": "None"
+    }
+  ],
+  "feedback_source_reasons": [
+    {
+      "id": 0,
+      "name": "OK",
+      "description": "Ok"
+    },
+    {
+      "id": 1,
+      "name": "NOT_STARTED",
+      "description": "Not started"
+    },
+    {
+      "id": 2,
+      "name": "CALIBRATING",
+      "description": "Calibrating"
+    },
+    {
+      "id": 3,
+      "name": "UNAVAILABLE",
+      "description": "Unavailable"
+    },
+    {
+      "id": 4,
+      "name": "STALE",
+      "description": "Stale"
+    },
+    {
+      "id": 5,
+      "name": "EXPIRED",
+      "description": "Expired"
+    },
+    {
+      "id": 6,
+      "name": "FAULT",
+      "description": "Fault"
+    },
+    {
+      "id": 7,
+      "name": "INHIBITED",
+      "description": "Inhibited"
+    },
+    {
+      "id": 8,
+      "name": "WAITING_SAMPLE",
+      "description": "Waiting sample"
+    },
+    {
+      "id": 9,
+      "name": "MOUNT_REQUIRED",
+      "description": "Declare a rigid level centered mount for passive fused tracking."
+    }
+  ],
+  "feedback_source_vectors": [
+    {
+      "id": 0,
+      "name": "POSE",
+      "description": "Pose"
+    },
+    {
+      "id": 1,
+      "name": "TWIST",
+      "description": "Twist"
     }
   ]
 }

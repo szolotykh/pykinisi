@@ -428,3 +428,39 @@ compact diagnostics and examples](fusion-experiment.md).
 
 See [IMU-only relative tracking](imu-tracking.md) for the protocol 2.20 opt-in,
 stationary sensor-axis mounting declaration, bounded horizon and diagnostics.
+
+## Tracking source selector
+
+A ready model 1 board with hardware 0.4.0 and protocol 2.21+ can report encoder,
+IMU-only or passive fused tracking. Encoder is the default. Call
+`set_feedback_source(source)` only while stopped and disarmed, with the motors
+coasting and a quiet encoder observation. `SOURCE_SWITCH_UNSAFE` leaves the previous
+preference in place. Selection never starts a producer, commands motion or enables
+a control loop. Prepare the required producer explicitly.
+
+- Encoder and passive fused tracking require initialized platform odometry.
+- The passive observer additionally needs an explicit `set_feedback_fusion_mount(yaw)`
+  declaration for a rigid, centered, level board with +Z up. Yaw is the angle of
+  board +X in chassis XY, counterclockwise about chassis +Z, in radians. Read
+  `get_feedback_fusion_mount()` to confirm it. Mount declarations are volatile.
+- IMU-only tracking requires the stationary mounting declaration and cold calibration
+  described above. Its one-second diagnostic window begins at the producer origin.
+  Re-selecting a source does not extend the window.
+
+The board reports `requested`, `active`, `valid`, `reason` and the native
+`source_detail`. Loss or expiry gives active NONE. Discard old estimates on source
+loss, a change in `origin_id`, or reconnect. Pose uses metres and continuous radians
+relative to the selector origin. Twist uses chassis forward/left metres per second
+and counterclockwise radians per second. The producer supplies `sequence` and the
+board-monotonic acquisition `timestamp_us`. `age_us` is the board's measured sample
+age, with `UINT32_MAX` for unavailable. Read current status after reconnect.
+
+Only explicit `save_configuration()` persists the requested preference with the
+rest of the running setup. Reboot requires a fresh mount or calibration as applicable.
+Restored preference is observable in selector status after reboot. Tracking data,
+origin and controller targets are volatile.
+
+Use `controller.read_feedback_source_snapshot()` for a verified status, pose and
+twist. An invalid status returns `None` vectors. Three successive mismatched
+observations raise `ProtocolError`. A failed write requires explicit readback
+before deciding whether to retry.

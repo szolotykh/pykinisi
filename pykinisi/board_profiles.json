@@ -8,7 +8,8 @@
       },
       "capabilities": {
         "fusion_experiment": false,
-        "imu_tracking": false
+        "imu_tracking": false,
+        "feedback_source_selector": false
       },
       "power": {
         "driver_sleep": false,
@@ -68,7 +69,8 @@
       },
       "capabilities": {
         "fusion_experiment": false,
-        "imu_tracking": false
+        "imu_tracking": false,
+        "feedback_source_selector": false
       },
       "power": {
         "driver_sleep": false,
@@ -128,7 +130,8 @@
       },
       "capabilities": {
         "fusion_experiment": false,
-        "imu_tracking": false
+        "imu_tracking": false,
+        "feedback_source_selector": false
       },
       "power": {
         "driver_sleep": true,
@@ -188,7 +191,8 @@
       },
       "capabilities": {
         "fusion_experiment": false,
-        "imu_tracking": false
+        "imu_tracking": false,
+        "feedback_source_selector": false
       },
       "power": {
         "driver_sleep": true,
@@ -248,7 +252,8 @@
       },
       "capabilities": {
         "fusion_experiment": true,
-        "imu_tracking": true
+        "imu_tracking": true,
+        "feedback_source_selector": true
       },
       "power": {
         "driver_sleep": true,
