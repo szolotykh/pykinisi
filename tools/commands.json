@@ -309,7 +309,9 @@
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
         "MOTOR_OWNED",
-        "INIT_REQUIRED"
+        "INIT_REQUIRED",
+        "ENCODER_NOT_INITIALIZED",
+        "SAMPLE_NOT_AVAILABLE"
       ]
     },
     {
@@ -341,7 +343,9 @@
         "INTERNAL_ERROR",
         "MOTOR_OWNED",
         "CONTROLLER_NOT_INITIALIZED",
-        "INIT_REQUIRED"
+        "INIT_REQUIRED",
+        "ENCODER_NOT_INITIALIZED",
+        "SAMPLE_NOT_AVAILABLE"
       ]
     },
     {
@@ -1113,7 +1117,8 @@
         "INTERNAL_ERROR",
         "ENCODER_NOT_INITIALIZED",
         "PLATFORM_NOT_INITIALIZED",
-        "INIT_REQUIRED"
+        "INIT_REQUIRED",
+        "SAMPLE_NOT_AVAILABLE"
       ]
     },
     {
@@ -1147,7 +1152,8 @@
         "PLATFORM_NOT_INITIALIZED",
         "CONTROLLER_NOT_INITIALIZED",
         "INIT_REQUIRED",
-        "SAMPLE_NOT_AVAILABLE"
+        "SAMPLE_NOT_AVAILABLE",
+        "ENCODER_NOT_INITIALIZED"
       ]
     },
     {
@@ -1715,7 +1721,9 @@
         "INTERNAL_ERROR",
         "INIT_REQUIRED",
         "CONTROLLER_NOT_INITIALIZED",
-        "MOTOR_OWNED"
+        "MOTOR_OWNED",
+        "ENCODER_NOT_INITIALIZED",
+        "SAMPLE_NOT_AVAILABLE"
       ]
     },
     {
@@ -1773,7 +1781,9 @@
         "INTERNAL_ERROR",
         "INIT_REQUIRED",
         "CONTROLLER_NOT_INITIALIZED",
-        "MOTOR_OWNED"
+        "MOTOR_OWNED",
+        "ENCODER_NOT_INITIALIZED",
+        "SAMPLE_NOT_AVAILABLE"
       ]
     },
     {
@@ -1854,7 +1864,8 @@
         "INIT_REQUIRED",
         "CONTROLLER_NOT_INITIALIZED",
         "PLATFORM_NOT_INITIALIZED",
-        "ENCODER_NOT_INITIALIZED"
+        "ENCODER_NOT_INITIALIZED",
+        "SAMPLE_NOT_AVAILABLE"
       ]
     },
     {
@@ -1905,7 +1916,8 @@
         "CONTROLLER_NOT_INITIALIZED",
         "PLATFORM_NOT_INITIALIZED",
         "ODOMETRY_NOT_INITIALIZED",
-        "SAMPLE_NOT_AVAILABLE"
+        "SAMPLE_NOT_AVAILABLE",
+        "ENCODER_NOT_INITIALIZED"
       ]
     },
     {
@@ -1962,7 +1974,9 @@
         "INTERNAL_ERROR",
         "INIT_REQUIRED",
         "CONTROLLER_NOT_INITIALIZED",
-        "MOTOR_OWNED"
+        "MOTOR_OWNED",
+        "ENCODER_NOT_INITIALIZED",
+        "SAMPLE_NOT_AVAILABLE"
       ]
     },
     {
@@ -2041,7 +2055,8 @@
         "INIT_REQUIRED",
         "CONTROLLER_NOT_INITIALIZED",
         "PLATFORM_NOT_INITIALIZED",
-        "ENCODER_NOT_INITIALIZED"
+        "ENCODER_NOT_INITIALIZED",
+        "SAMPLE_NOT_AVAILABLE"
       ]
     },
     {

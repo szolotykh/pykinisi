@@ -1485,7 +1485,7 @@ class KinisiCommands:
         (0..100). Zero disables integral action.
 
         Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
-        MOTOR_OWNED, INIT_REQUIRED.
+        MOTOR_OWNED, INIT_REQUIRED, ENCODER_NOT_INITIALIZED, SAMPLE_NOT_AVAILABLE.
         """
         if any(not math.isfinite(value) or value < 0 for value in (kp, ki, kd, integral_limit)) or integral_limit > 100:
             raise ValueError('Velocity gains must be finite and nonnegative; integral_limit must be 0..100 PWM percentage points')
@@ -1502,7 +1502,8 @@ class KinisiCommands:
         speed: The speed of the motor.
 
         Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
-        MOTOR_OWNED, CONTROLLER_NOT_INITIALIZED, INIT_REQUIRED.
+        MOTOR_OWNED, CONTROLLER_NOT_INITIALIZED, INIT_REQUIRED, ENCODER_NOT_INITIALIZED,
+        SAMPLE_NOT_AVAILABLE.
         """
         payload = struct.pack('<Bd', motor_index, speed)
         result = self._request(SET_MOTOR_TARGET_SPEED, payload, 0)
@@ -1849,7 +1850,8 @@ class KinisiCommands:
         (0..100). Zero disables integral action.
 
         Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
-        ENCODER_NOT_INITIALIZED, PLATFORM_NOT_INITIALIZED, INIT_REQUIRED.
+        ENCODER_NOT_INITIALIZED, PLATFORM_NOT_INITIALIZED, INIT_REQUIRED,
+        SAMPLE_NOT_AVAILABLE.
         """
         if any(not math.isfinite(value) or value < 0 for value in (kp, ki, kd, integral_limit)) or integral_limit > 100:
             raise ValueError('Velocity gains must be finite and nonnegative; integral_limit must be 0..100 PWM percentage points')
@@ -1871,7 +1873,7 @@ class KinisiCommands:
 
         Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
         PLATFORM_NOT_INITIALIZED, CONTROLLER_NOT_INITIALIZED, INIT_REQUIRED,
-        SAMPLE_NOT_AVAILABLE.
+        SAMPLE_NOT_AVAILABLE, ENCODER_NOT_INITIALIZED.
         """
         payload = struct.pack('<ddd', x, y, t)
         result = self._request(SET_PLATFORM_TARGET_VELOCITY, payload, 0)
@@ -2084,7 +2086,8 @@ class KinisiCommands:
         tolerance: Position tolerance in radians; must be nonnegative.
 
         Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
-        INIT_REQUIRED, CONTROLLER_NOT_INITIALIZED, MOTOR_OWNED.
+        INIT_REQUIRED, CONTROLLER_NOT_INITIALIZED, MOTOR_OWNED, ENCODER_NOT_INITIALIZED,
+        SAMPLE_NOT_AVAILABLE.
         """
         payload = struct.pack('<Bddd', motor_index, kp, max_speed, tolerance)
         result = self._request(INITIALIZE_MOTOR_POSITION_CONTROLLER, payload, 0)
@@ -2111,7 +2114,8 @@ class KinisiCommands:
         position: Absolute target in radians; not wrapped.
 
         Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
-        INIT_REQUIRED, CONTROLLER_NOT_INITIALIZED, MOTOR_OWNED.
+        INIT_REQUIRED, CONTROLLER_NOT_INITIALIZED, MOTOR_OWNED, ENCODER_NOT_INITIALIZED,
+        SAMPLE_NOT_AVAILABLE.
         """
         payload = struct.pack('<Bd', motor_index, position)
         result = self._request(SET_MOTOR_POSITION, payload, 0)
@@ -2143,7 +2147,7 @@ class KinisiCommands:
 
         Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
         INIT_REQUIRED, CONTROLLER_NOT_INITIALIZED, PLATFORM_NOT_INITIALIZED,
-        ENCODER_NOT_INITIALIZED.
+        ENCODER_NOT_INITIALIZED, SAMPLE_NOT_AVAILABLE.
         """
         payload = struct.pack('<dddddd', linear_kp, angular_kp, max_linear_speed, max_angular_speed, position_tolerance, heading_tolerance)
         result = self._request(INITIALIZE_PLATFORM_POSITION_CONTROLLER, payload, 0)
@@ -2170,7 +2174,7 @@ class KinisiCommands:
 
         Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
         INIT_REQUIRED, CONTROLLER_NOT_INITIALIZED, PLATFORM_NOT_INITIALIZED,
-        ODOMETRY_NOT_INITIALIZED, SAMPLE_NOT_AVAILABLE.
+        ODOMETRY_NOT_INITIALIZED, SAMPLE_NOT_AVAILABLE, ENCODER_NOT_INITIALIZED.
         """
         payload = struct.pack('<ddd', x, y, t)
         result = self._request(SET_PLATFORM_POSITION, payload, 0)
@@ -2192,7 +2196,8 @@ class KinisiCommands:
         integral_limit: Maximum absolute integral contribution (rad/s), nonnegative.
 
         Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
-        INIT_REQUIRED, CONTROLLER_NOT_INITIALIZED, MOTOR_OWNED.
+        INIT_REQUIRED, CONTROLLER_NOT_INITIALIZED, MOTOR_OWNED, ENCODER_NOT_INITIALIZED,
+        SAMPLE_NOT_AVAILABLE.
         """
         payload = struct.pack('<Bdddddd', motor_index, kp, max_speed, tolerance, ki, kd, integral_limit)
         result = self._request(INITIALIZE_MOTOR_POSITION_PID_CONTROLLER, payload, 0)
@@ -2220,7 +2225,7 @@ class KinisiCommands:
 
         Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
         INIT_REQUIRED, CONTROLLER_NOT_INITIALIZED, PLATFORM_NOT_INITIALIZED,
-        ENCODER_NOT_INITIALIZED.
+        ENCODER_NOT_INITIALIZED, SAMPLE_NOT_AVAILABLE.
         """
         payload = struct.pack('<dddddddddddd', linear_kp, angular_kp, max_linear_speed, max_angular_speed, position_tolerance, heading_tolerance, linear_ki, linear_kd, linear_integral_limit, angular_ki, angular_kd, angular_integral_limit)
         result = self._request(INITIALIZE_PLATFORM_POSITION_PID_CONTROLLER, payload, 0)
