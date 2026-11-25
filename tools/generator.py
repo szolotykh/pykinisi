@@ -392,6 +392,8 @@ def _generate_method(cmd, objects):
             result += "        if (sample.requested > 2 or sample.valid > 1 or sample.reason > 9 or (sample.valid and (sample.active != sample.requested or sample.reason != 0 or not sample.max_age_ms or sample.age_us > 1000 * sample.max_age_ms)) or (not sample.valid and (sample.active != 255 or sample.reason == 0 or sample.sequence != 0 or sample.timestamp_us != 0 or sample.age_us != 0xffffffff))):\n            raise ValueError('Invalid feedback source status')\n"
         elif cmd['command'] == 'GET_FEEDBACK_FUSION_MOUNT':
             result += "        if sample.confirmed > 1 or not math.isfinite(sample.mounting_yaw_rad) or abs(sample.mounting_yaw_rad) > math.pi:\n            raise ValueError('Invalid feedback fusion mount')\n"
+        elif cmd['command'] == 'GET_FEEDBACK_IMU_CHANNELS':
+            result += "        if ((sample.accel_timestamp_us == 0 and sample.accel_age_us != 0xffffffff) or\n                (sample.gyro_timestamp_us == 0 and sample.gyro_age_us != 0xffffffff)):\n            raise ValueError('Invalid feedback IMU channel provenance')\n"
         elif cmd['command'] == 'GET_FEEDBACK_SOURCE_HEALTH':
             result += "        if sample.source != source or sample.health not in tuple(FeedbackSourceHealthState) or sample.reason not in tuple(FeedbackSourceReason) or sample.detail not in tuple(FusionFault):\n            raise ValueError('Invalid feedback source health')\n"
         elif cmd['command'] == 'GET_FEEDBACK_SOURCE_VECTOR':

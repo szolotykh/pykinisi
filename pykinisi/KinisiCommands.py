@@ -2842,5 +2842,8 @@ class KinisiCommands:
         payload = struct.pack('<')
         result = self._request(GET_FEEDBACK_IMU_CHANNELS, payload, FeedbackImuChannels.get_size())
         sample = FeedbackImuChannels.decode(result)
+        if ((sample.accel_timestamp_us == 0 and sample.accel_age_us != 0xffffffff) or
+                (sample.gyro_timestamp_us == 0 and sample.gyro_age_us != 0xffffffff)):
+            raise ValueError('Invalid feedback IMU channel provenance')
         return sample
 

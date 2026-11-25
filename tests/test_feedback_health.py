@@ -93,6 +93,12 @@ class SourceHealthTests(unittest.TestCase):
             client.reply = reply
             with self.assertRaises(ValueError):
                 client.get_feedback_source_health(1)
+        for record in [(0, STAMP, 5, 0xffffffff), (STAMP, 0, 0xffffffff, 0)]:
+            client.reply = CHANNELS.pack(*record)
+            with self.assertRaisesRegex(ValueError, 'provenance'):
+                client.get_feedback_imu_channels()
+        client.reply = CHANNELS.pack(STAMP, STAMP + 1, 0xffffffff, 0xffffffff)
+        self.assertEqual(client.get_feedback_imu_channels().accel_timestamp_us, STAMP)
         for size in (23, 25):
             client.reply = bytes(size)
             with self.assertRaises(ValueError):
