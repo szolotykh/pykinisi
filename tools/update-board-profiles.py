@@ -32,6 +32,7 @@ def validate(bundle):
         fields(profile, ('board', 'resources', 'motor_features', 'sensors') +
                (('pwm_frequency',) if 'pwm_frequency' in profile else ()) +
                (('power',) if 'power' in profile else ()) +
+               (('imu_geometry',) if 'imu_geometry' in profile else ()) +
                (('capabilities',) if 'capabilities' in profile else ()), 'board profile')
         if 'capabilities' in profile:
             optional = ('imu_tracking', 'feedback_source_selector', 'feedback_source_health', 'imu_mounting')
@@ -59,6 +60,14 @@ def validate(bundle):
         identity = (board['model'], revision)
         require(identity not in identities, 'Duplicate board identity')
         identities.add(identity)
+        if 'imu_geometry' in profile:
+            require(identity == (1, '0.4.0'), 'IMU geometry requires the Mini v0.4.0 profile')
+            geometry = profile['imu_geometry']
+            fields(geometry, ('underside_center_to_imu_um',), 'IMU geometry')
+            vector = geometry['underside_center_to_imu_um']
+            require(isinstance(vector, list) and len(vector) == 3 and
+                    all(integer(v, -2**31, 2**31 - 1) for v in vector),
+                    'Expected three signed int32 board-frame IMU offsets')
         resources = profile['resources']
         fields(resources, ('motors', 'encoders', 'gpio', 'status_leds'), 'resources')
         require(all(integer(v, 0, 255) for v in resources.values()), 'Invalid resource count')

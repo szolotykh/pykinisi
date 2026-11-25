@@ -27,6 +27,10 @@ class BoardProfileTests(unittest.TestCase):
             self.assertEqual(profile['board'], {'model': 1, 'revision': f'0.{minor}.0'})
             self.assertEqual(profile['resources'], dict(motors=4, encoders=encoders, gpio=gpio, status_leds=1))
             self.assertIs(profile, get_board_profile(identity(minor, 1)))
+            if minor == 4:
+                self.assertEqual(profile['imu_geometry']['underside_center_to_imu_um'], (-15373, 26953, 2075))
+            else:
+                self.assertNotIn('imu_geometry', profile)
             self.assertEqual([m['current_sense'] for m in profile['motor_features']], [minor == 4] * 4)
             self.assertEqual([m['current_limit'] for m in profile['motor_features']], [minor == 4] * 4)
 
@@ -79,6 +83,23 @@ class ProfileUpdaterTests(unittest.TestCase):
     def setUp(self):
         self.updater = load_module('profile_updater', ROOT / 'tools/update-board-profiles.py')
         self.bundle = json.loads((ROOT / 'pykinisi/board_profiles.json').read_text(encoding='utf-8'))
+
+    def test_generated_mini_geometry_uses_input_vector(self):
+        mini = self.bundle['boards'][-1]
+        self.assertEqual(mini['imu_geometry']['underside_center_to_imu_um'], [-15373, 26953, 2075])
+        mini['imu_geometry']['underside_center_to_imu_um'] = [105, -206, 307]
+        generated = json.loads(self.updater.generate(self.bundle))
+        self.assertEqual(generated['boards'][-1]['imu_geometry']['underside_center_to_imu_um'], [105, -206, 307])
+        del mini['imu_geometry']
+        self.updater.generate(self.bundle)
+        for invalid in ([1, 2], [False, 2, 3], [1.0, 2, 3], [1, 2, 2**31], [-2**31-1, 2, 3]):
+            mini['imu_geometry'] = {'underside_center_to_imu_um': invalid}
+            with self.assertRaises(ValueError):
+                self.updater.generate(self.bundle)
+        del mini['imu_geometry']
+        self.bundle['boards'][0]['imu_geometry'] = {'underside_center_to_imu_um': [1, 2, 3]}
+        with self.assertRaises(ValueError):
+            self.updater.generate(self.bundle)
 
     def test_bundled_output_is_deterministic_and_public(self):
         self.assertEqual(self.updater.generate(self.bundle),

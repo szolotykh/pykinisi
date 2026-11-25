@@ -21,7 +21,7 @@ from .KinisiCommands import (
     EncoderOdometrySample, PlatformOdometrySample, GET_TEMPERATURE, GET_IMU, GET_MOTOR_CURRENT, GET_MOTOR_FAULTS, CLEAR_MOTOR_FAULTS, GET_PWM_FREQUENCY, SET_PWM_FREQUENCY, GET_MOTOR_CURRENT_LIMIT, SET_MOTOR_CURRENT_LIMIT,
     FeedbackSourceVectorKind, FeedbackSourceStatus, FeedbackSourceVector,
     GET_FEEDBACK_SOURCE_HEALTH, GET_FEEDBACK_IMU_CHANNELS,
-    SET_IMU_MOUNT, GET_IMU_MOUNT,
+    SET_IMU_MOUNT, GET_IMU_MOUNT, SET_BOARD_MOUNT, GET_BOARD_MOUNT,
     SET_FEEDBACK_SOURCE, GET_FEEDBACK_SOURCE_STATUS, GET_FEEDBACK_SOURCE_VECTOR, SET_FEEDBACK_FUSION_MOUNT, GET_FEEDBACK_FUSION_MOUNT,
     SET_IMU_TRACKING, GET_IMU_TRACKING_STATUS, GET_IMU_TRACKING_VECTOR, GET_IMU_TRACKING_CONFIGURATION,
     SET_FUSION_EXPERIMENT, GET_FUSION_STATUS, GET_FUSION_VECTOR, GET_FUSION_CONFIGURATION,
@@ -147,6 +147,18 @@ class FeedbackSourceSnapshot:
 
 
 @dataclass(frozen=True)
+class BoardMountGeometry:
+    """Board-to-chassis angles in degrees and PCB underside-center position in chassis metres."""
+    roll_deg: float
+    pitch_deg: float
+    yaw_deg: float
+    x_m: float
+    y_m: float
+    z_m: float
+    configured: bool
+
+
+@dataclass(frozen=True)
 class ImuMountGeometry:
     """Board-to-chassis angles in degrees and origin-to-chip distances in chassis metres."""
     roll_deg: float
@@ -164,6 +176,17 @@ def _mount_units(value, limit, scale, name):
     fraction, whole = math.modf(abs(value) * scale)
     magnitude = int(whole) + (fraction >= 0.5)
     return -magnitude if value < 0 else magnitude
+
+
+def _mount_arguments(roll_deg, pitch_deg, yaw_deg, x_m, y_m, z_m):
+    return (
+        _mount_units(roll_deg, 180, 100, 'roll_deg'),
+        _mount_units(pitch_deg, 90, 100, 'pitch_deg'),
+        _mount_units(yaw_deg, 180, 100, 'yaw_deg'),
+        _mount_units(x_m, 10, 1_000_000, 'x_m'),
+        _mount_units(y_m, 10, 1_000_000, 'y_m'),
+        _mount_units(z_m, 10, 1_000_000, 'z_m'),
+    )
 
 
 class KinisiController(KinisiCommands):
@@ -270,23 +293,31 @@ class KinisiController(KinisiCommands):
         """Whether the board supports read-only source health and BMI088 channel times."""
         return self._supports_feedback_capability('feedback_source_health', 22)
 
+    def supports_board_mounting(self):
+        """Whether this READY session supports the PCB underside-center mounting configuration."""
+        return self._supports_feedback_capability('imu_mounting', 24)
+
+    def set_board_mount_geometry(self, roll_deg, pitch_deg, yaw_deg, x_m, y_m, z_m):
+        """Set Rz(yaw) Ry(pitch) Rx(roll) and the chassis-origin to PCB underside-center offset."""
+        self.set_board_mount(*_mount_arguments(roll_deg, pitch_deg, yaw_deg, x_m, y_m, z_m))
+
+    def get_board_mount_geometry(self) -> BoardMountGeometry:
+        """Read the quantized PCB underside-center pose and the explicit configuration flag."""
+        mount = self.get_board_mount()
+        return BoardMountGeometry(mount.roll_cdeg / 100, mount.pitch_cdeg / 100, mount.yaw_cdeg / 100,
+                                  mount.x_um / 1_000_000, mount.y_um / 1_000_000, mount.z_um / 1_000_000,
+                                  mount.configured)
+
     def supports_imu_mounting(self):
-        """Whether this READY session supports the shared physical IMU mounting configuration."""
+        """Whether this READY session supports the legacy chip-referenced configuration."""
         return self._supports_feedback_capability('imu_mounting', 23)
 
     def set_imu_mount_geometry(self, roll_deg, pitch_deg, yaw_deg, x_m, y_m, z_m):
-        """Set Rz(yaw) Ry(pitch) Rx(roll) and the chassis-origin to BMI088 offset."""
-        self.set_imu_mount(
-            _mount_units(roll_deg, 180, 100, 'roll_deg'),
-            _mount_units(pitch_deg, 90, 100, 'pitch_deg'),
-            _mount_units(yaw_deg, 180, 100, 'yaw_deg'),
-            _mount_units(x_m, 10, 1_000_000, 'x_m'),
-            _mount_units(y_m, 10, 1_000_000, 'y_m'),
-            _mount_units(z_m, 10, 1_000_000, 'z_m'),
-        )
+        """Deprecated chip-reference setter. Offsets locate the BMI088 in chassis metres."""
+        self.set_imu_mount(*_mount_arguments(roll_deg, pitch_deg, yaw_deg, x_m, y_m, z_m))
 
     def get_imu_mount_geometry(self) -> ImuMountGeometry:
-        """Read the quantized geometry and whether it overrides the legacy mode-specific yaw."""
+        """Deprecated chip-reference getter. Read the applied BMI088 location in chassis metres."""
         mount = self.get_imu_mount()
         return ImuMountGeometry(mount.roll_cdeg / 100, mount.pitch_cdeg / 100, mount.yaw_cdeg / 100,
                                 mount.x_um / 1_000_000, mount.y_um / 1_000_000, mount.z_um / 1_000_000,
@@ -590,6 +621,8 @@ class KinisiController(KinisiCommands):
                 raise ProtocolError('Configuration storage requires a ready v0.4 controller running protocol 2.14 or newer')
             if command in (SET_DRIVER_SLEEP, GET_DRIVER_SLEEP) and not self.supports_driver_sleep():
                 raise ProtocolError('Driver sleep requires READY and a supported board: v0.3/Nano protocol 2.17+, v0.4 protocol 2.15+')
+            if command in (SET_BOARD_MOUNT, GET_BOARD_MOUNT) and not self.supports_board_mounting():
+                raise ProtocolError('Board-center mounting requires READY, exact v0.4.0 capability and protocol 2.24+')
             if command in (SET_IMU_MOUNT, GET_IMU_MOUNT) and not self.supports_imu_mounting():
                 raise ProtocolError('IMU mounting requires READY, exact v0.4.0 capability and protocol 2.23+')
             if command in (GET_FEEDBACK_SOURCE_HEALTH, GET_FEEDBACK_IMU_CHANNELS) and not self.supports_feedback_source_health():

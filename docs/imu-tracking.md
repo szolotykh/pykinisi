@@ -28,7 +28,7 @@ Another window requires a deliberate stationary restart.
 
 ## Deliberate stationary origin
 
-For a rotated or displaced board, enter the [physical mounting geometry](imu-mounting.md) on protocol 2.23+.
+For a rotated or displaced board, enter the [PCB underside-center mounting geometry](imu-mounting.md) on protocol 2.24+.
 With legacy yaw-only setup, use a rigid, level mount with **sensor +Z up** and the IMU centered at the chassis
 reference point. Chassis axes are forward, left, up. Declare `mounting_yaw_rad`
 as the angle of **sensor +X**, counterclockwise about chassis +Z, in [-pi, pi].

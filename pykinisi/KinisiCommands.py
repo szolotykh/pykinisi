@@ -9,7 +9,7 @@ import struct
 from enum import IntEnum, IntFlag
 
 
-PROTOCOL_VERSION = (2, 23, 0)
+PROTOCOL_VERSION = (2, 24, 0)
 
 GET_TEMPERATURE = 0x50
 GET_IMU = 0x51
@@ -115,6 +115,8 @@ GET_FEEDBACK_SOURCE_HEALTH = 0x6C
 GET_FEEDBACK_IMU_CHANNELS = 0x6D
 SET_IMU_MOUNT = 0x6E
 GET_IMU_MOUNT = 0x6F
+SET_BOARD_MOUNT = 0x85
+GET_BOARD_MOUNT = 0x86
 
 
 class ErrorCode(IntEnum):
@@ -1005,7 +1007,7 @@ class FeedbackFusionMount:
 
     confirmed: One after an explicit mount declaration this boot.
     mounting_yaw_rad: Angle of board +X in chassis XY, counterclockwise about +Z in radians.
-    Rigid, level, centered board with +Z up.
+    A centered, level board with +Z up is required only for a yaw-only installation.
     """
 
     def __init__(self, confirmed: int, mounting_yaw_rad: float):
@@ -1119,11 +1121,14 @@ class ImuMountConfiguration:
     pitch_cdeg: Board-to-chassis pitch in signed hundredths of a degree.
     yaw_cdeg: Board-to-chassis yaw in signed hundredths of a degree.
     x_um: Signed displacement from the tracking origin to the BMI088 chip along chassis +X
-    (forward), in micrometres.
+    (forward), in micrometres. A position derived from the other reference can exceed its
+    setter's 10 m input range.
     y_um: Signed displacement from the tracking origin to the BMI088 chip along chassis +Y
-    (left), in micrometres.
+    (left), in micrometres. A position derived from the other reference can exceed its
+    setter's 10 m input range.
     z_um: Signed displacement from the tracking origin to the BMI088 chip along chassis +Z
-    (up), in micrometres.
+    (up), in micrometres. A position derived from the other reference can exceed its
+    setter's 10 m input range.
     configured: True after explicit mount setup or restore. False selects legacy per-mode
     yaw.
     """
@@ -1149,6 +1154,50 @@ class ImuMountConfiguration:
 
     @classmethod
     def decode(cls, payload: bytes) -> 'ImuMountConfiguration':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<hhhiii?', payload))
+
+
+class BoardMountConfiguration:
+    """Applied orientation and chassis-to-PCB underside-center displacement.
+
+    roll_cdeg: Board-to-chassis roll in signed hundredths of a degree.
+    pitch_cdeg: Board-to-chassis pitch in signed hundredths of a degree.
+    yaw_cdeg: Board-to-chassis yaw in signed hundredths of a degree.
+    x_um: Signed displacement from the tracking origin to the geometric center of the PCB
+    underside along chassis +X (forward), in micrometres. A position derived from the other
+    reference can exceed its setter's 10 m input range.
+    y_um: Signed displacement from the tracking origin to the geometric center of the PCB
+    underside along chassis +Y (left), in micrometres. A position derived from the other
+    reference can exceed its setter's 10 m input range.
+    z_um: Signed displacement from the tracking origin to the geometric center of the PCB
+    underside along chassis +Z (up), in micrometres. A position derived from the other
+    reference can exceed its setter's 10 m input range.
+    configured: True after explicit mount setup or restore. False selects legacy per-mode
+    yaw.
+    """
+
+    def __init__(self, roll_cdeg: int, pitch_cdeg: int, yaw_cdeg: int, x_um: int, y_um: int, z_um: int, configured: bool):
+        """Store the fields of one controller payload."""
+        self.roll_cdeg = roll_cdeg
+        self.pitch_cdeg = pitch_cdeg
+        self.yaw_cdeg = yaw_cdeg
+        self.x_um = x_um
+        self.y_um = y_um
+        self.z_um = z_um
+        self.configured = configured
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 19
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<hhhiii?', self.roll_cdeg, self.pitch_cdeg, self.yaw_cdeg, self.x_um, self.y_um, self.z_um, self.configured))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'BoardMountConfiguration':
         """Decode exactly one payload; reject truncation and trailing bytes."""
         return cls(*_unpack_payload('<hhhiii?', payload))
 
@@ -2568,8 +2617,9 @@ class KinisiCommands:
         automatically after an ordinary sensor fault, but healthy inputs and a fresh target
         are required before control resumes. Does not save to FRAM or start motion. Requires
         READY, exact v0.4.0 fusion capability and protocol 2.19. On protocol 2.23+, a
-        configured physical mount takes precedence over legacy yaw. Read GET_IMU_MOUNT for
-        the applied geometry.
+        configured physical mount takes precedence over legacy yaw. Use GET_BOARD_MOUNT on
+        2.24+ for PCB underside-center geometry. On 2.23 use GET_IMU_MOUNT for
+        chip-reference geometry.
 
         mode: FusionMode value.
         mounting_yaw_rad: Legacy board yaw in radians for a centered, level installation. A
@@ -2638,8 +2688,9 @@ class KinisiCommands:
         """Read the volatile experiment mode and declared mounting yaw without changing state.
         Reset selects legacy encoder mode; SAVE_CONFIGURATION does not persist this
         experiment. Requires READY, exact v0.4.0 fusion capability and protocol 2.19. On
-        protocol 2.23+, a configured physical mount takes precedence over legacy yaw. Read
-        GET_IMU_MOUNT for the applied geometry.
+        protocol 2.23+, a configured physical mount takes precedence over legacy yaw. Use
+        GET_BOARD_MOUNT on 2.24+ for PCB underside-center geometry. On 2.23 use
+        GET_IMU_MOUNT for chip-reference geometry.
 
         Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
         SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
@@ -2666,7 +2717,8 @@ class KinisiCommands:
         READY, exact model 1 hardware 0.4.0 with imu_tracking capability and protocol 2.20+.
         Independent of platform, encoders and fusion; never commands motion or changes
         control feedback. On protocol 2.23+, a configured physical mount takes precedence
-        over legacy yaw. Read GET_IMU_MOUNT for the applied geometry.
+        over legacy yaw. Use GET_BOARD_MOUNT on 2.24+ for PCB underside-center geometry. On
+        2.23 use GET_IMU_MOUNT for chip-reference geometry.
 
         action: ImuTrackingAction value.
         stationary_mount_confirmed: Explicit caller confirmation of zero velocity and the
@@ -2744,7 +2796,8 @@ class KinisiCommands:
         Requires READY, exact model 1 hardware 0.4.0 with imu_tracking capability and
         protocol 2.20+. Independent of platform, encoders and fusion; never commands motion
         or changes control feedback. On protocol 2.23+, a configured physical mount takes
-        precedence over legacy yaw. Read GET_IMU_MOUNT for the applied geometry.
+        precedence over legacy yaw. Use GET_BOARD_MOUNT on 2.24+ for PCB underside-center
+        geometry. On 2.23 use GET_IMU_MOUNT for chip-reference geometry.
 
         Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
         SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
@@ -2838,11 +2891,12 @@ class KinisiCommands:
         controllers. Each successful command discards prior passive calibration and pose;
         the observer requires fresh stationary observations. This volatile setting applies
         only to passive telemetry. Requires READY, exact v0.4 and protocol 2.21+. On
-        protocol 2.23+, a configured physical mount takes precedence over legacy yaw. Read
-        GET_IMU_MOUNT for the applied geometry.
+        protocol 2.23+, a configured physical mount takes precedence over legacy yaw. Use
+        GET_BOARD_MOUNT on 2.24+ for PCB underside-center geometry. On 2.23 use
+        GET_IMU_MOUNT for chip-reference geometry.
 
-        mounting_yaw_rad: Angle of board +X in chassis XY, counterclockwise about +Z in
-        radians. Rigid, level, centered board with +Z up.
+        mounting_yaw_rad: Legacy yaw of board +X in chassis XY, counterclockwise about +Z in
+        radians. Centered and level applies only to a yaw-only installation.
 
         Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
         SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, SOURCE_SWITCH_UNSAFE.
@@ -2855,8 +2909,9 @@ class KinisiCommands:
     def get_feedback_fusion_mount(self) -> FeedbackFusionMount:
         """Read the explicit volatile passive fusion mounting confirmation and board yaw. Reset
         clears confirmation. Requires READY, exact v0.4 and protocol 2.21+. On protocol
-        2.23+, a configured physical mount takes precedence over legacy yaw. Read
-        GET_IMU_MOUNT for the applied geometry.
+        2.23+, a configured physical mount takes precedence over legacy yaw. Use
+        GET_BOARD_MOUNT on 2.24+ for PCB underside-center geometry. On 2.23 use
+        GET_IMU_MOUNT for chip-reference geometry.
 
         Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
         SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
@@ -2910,10 +2965,12 @@ class KinisiCommands:
         return sample
 
     def set_imu_mount(self, roll_cdeg: int, pitch_cdeg: int, yaw_cdeg: int, x_um: int, y_um: int, z_um: int) -> None:
-        """Set the complete rigid mount for IMU-only and fused tracking on a stopped, disarmed
-        v0.4. The board-to-chassis rotation is Rz(yaw) Ry(pitch) Rx(roll). A changed mount
-        requires fresh tracking initialization. SAVE_CONFIGURATION persists this geometry.
-        Requires READY and protocol 2.23+ with imu_mounting.
+        """Legacy chip-reference API, deprecated for new installations. Set the complete rigid
+        mount for IMU-only and fused tracking on a stopped, disarmed v0.4. The
+        board-to-chassis rotation is Rz(yaw) Ry(pitch) Rx(roll). A changed mount requires
+        fresh tracking initialization. SAVE_CONFIGURATION persists this geometry. Requires
+        READY and protocol 2.23+ with imu_mounting. XYZ refers to the BMI088 chip. Use
+        SET_BOARD_MOUNT for the PCB underside center.
 
         roll_cdeg: Board-to-chassis roll in signed hundredths of a degree.
         pitch_cdeg: Board-to-chassis pitch in signed hundredths of a degree.
@@ -2944,9 +3001,11 @@ class KinisiCommands:
         result = self._request(SET_IMU_MOUNT, payload, 0)
 
     def get_imu_mount(self) -> ImuMountConfiguration:
-        """Read the shared physical mount. When configured is false, IMU-only uses its legacy
-        sensor yaw and fusion its legacy board yaw. Requires READY and protocol 2.23+ with
-        imu_mounting.
+        """Legacy chip-reference API, deprecated for new installations. Read the shared
+        physical mount. When configured is false, IMU-only uses its legacy sensor yaw and
+        fusion its legacy board yaw. Requires READY and protocol 2.23+ with imu_mounting.
+        XYZ is the BMI088 chip position, including when derived from a PCB underside-center
+        installation.
 
         Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
         SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
@@ -2962,11 +3021,75 @@ class KinisiCommands:
             raise ValueError('Invalid pitch_cdeg')
         if not -18000 <= sample.yaw_cdeg <= 18000:
             raise ValueError('Invalid yaw_cdeg')
-        if not -10000000 <= sample.x_um <= 10000000:
+        if not -10031098 <= sample.x_um <= 10031098:
             raise ValueError('Invalid x_um')
-        if not -10000000 <= sample.y_um <= 10000000:
+        if not -10031098 <= sample.y_um <= 10031098:
             raise ValueError('Invalid y_um')
-        if not -10000000 <= sample.z_um <= 10000000:
+        if not -10031098 <= sample.z_um <= 10031098:
+            raise ValueError('Invalid z_um')
+        return sample
+
+    def set_board_mount(self, roll_cdeg: int, pitch_cdeg: int, yaw_cdeg: int, x_um: int, y_um: int, z_um: int) -> None:
+        """Set the rigid mount on a stopped, disarmed Mini. XYZ is the displacement in chassis
+        axes from the tracking origin to the geometric center of the PCB underside.
+        Board-to-chassis rotation is Rz(yaw) Ry(pitch) Rx(roll). Firmware derives the chip
+        offset. SAVE_CONFIGURATION persists the entered board pose. Requires READY, exact
+        v0.4 imu_mounting and protocol 2.24+.
+
+        roll_cdeg: Board-to-chassis roll in signed hundredths of a degree.
+        pitch_cdeg: Board-to-chassis pitch in signed hundredths of a degree.
+        yaw_cdeg: Board-to-chassis yaw in signed hundredths of a degree.
+        x_um: Signed displacement from the tracking origin to the geometric center of the
+        PCB underside along chassis +X (forward), in micrometres.
+        y_um: Signed displacement from the tracking origin to the geometric center of the
+        PCB underside along chassis +Y (left), in micrometres.
+        z_um: Signed displacement from the tracking origin to the geometric center of the
+        PCB underside along chassis +Z (up), in micrometres.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, SOURCE_SWITCH_UNSAFE.
+        """
+        if type(roll_cdeg) is not int or not -18000 <= roll_cdeg <= 18000:
+            raise ValueError('Invalid roll_cdeg')
+        if type(pitch_cdeg) is not int or not -9000 <= pitch_cdeg <= 9000:
+            raise ValueError('Invalid pitch_cdeg')
+        if type(yaw_cdeg) is not int or not -18000 <= yaw_cdeg <= 18000:
+            raise ValueError('Invalid yaw_cdeg')
+        if type(x_um) is not int or not -10000000 <= x_um <= 10000000:
+            raise ValueError('Invalid x_um')
+        if type(y_um) is not int or not -10000000 <= y_um <= 10000000:
+            raise ValueError('Invalid y_um')
+        if type(z_um) is not int or not -10000000 <= z_um <= 10000000:
+            raise ValueError('Invalid z_um')
+        payload = struct.pack('<hhhiii', roll_cdeg, pitch_cdeg, yaw_cdeg, x_um, y_um, z_um)
+        result = self._request(SET_BOARD_MOUNT, payload, 0)
+
+    def get_board_mount(self) -> BoardMountConfiguration:
+        """Read the applied board orientation and geometric PCB underside center in chassis
+        coordinates. Legacy chip mounts are converted. When unconfigured all coordinates and
+        angles are zero. Requires READY, exact v0.4 imu_mounting and protocol 2.24+.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
+        """
+        payload = struct.pack('<')
+        result = self._request(GET_BOARD_MOUNT, payload, BoardMountConfiguration.get_size())
+        sample = BoardMountConfiguration.decode(result)
+        if result[-1] > 1:
+            raise ValueError('Invalid IMU mount configured flag')
+        if not sample.configured and any(result[:-1]):
+            raise ValueError('Unexpected unconfigured board pose')
+        if not -18000 <= sample.roll_cdeg <= 18000:
+            raise ValueError('Invalid roll_cdeg')
+        if not -9000 <= sample.pitch_cdeg <= 9000:
+            raise ValueError('Invalid pitch_cdeg')
+        if not -18000 <= sample.yaw_cdeg <= 18000:
+            raise ValueError('Invalid yaw_cdeg')
+        if not -10031098 <= sample.x_um <= 10031098:
+            raise ValueError('Invalid x_um')
+        if not -10031098 <= sample.y_um <= 10031098:
+            raise ValueError('Invalid y_um')
+        if not -10031098 <= sample.z_um <= 10031098:
             raise ValueError('Invalid z_um')
         return sample
 

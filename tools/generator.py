@@ -25,7 +25,7 @@ type_mapping = {name: "bool" if name == "bool" else "float" if name == "double" 
 DIRECTIONS = {"client_to_controller", "controller_to_client"}
 # These messages support handwritten session behavior, independently of schema version.
 SESSION_COMMANDS = {
-    "SET_IMU_MOUNT", "GET_IMU_MOUNT",
+    "SET_IMU_MOUNT", "GET_IMU_MOUNT", "SET_BOARD_MOUNT", "GET_BOARD_MOUNT",
     "SET_DRIVER_SLEEP", "GET_DRIVER_SLEEP",
     "SET_BOARD_IDLE", "GET_BOARD_IDLE",
     "SAVE_CONFIGURATION", "GET_CONFIGURATION_FIELD",
@@ -355,7 +355,7 @@ def _generate_method(cmd, objects):
     if cmd['command'] == 'GET_FEEDBACK_SOURCE_VECTOR':
         result += "        if isinstance(kind, bool) or not isinstance(kind, int) or kind not in (0, 1):\n            raise ValueError('Invalid feedback vector kind')\n"
         result += "        if any(type(value) is not int or not 0 <= value <= 0xffffffff for value in (origin_id, sequence)):\n            raise ValueError('Invalid feedback sample key')\n"
-    if cmd['command'] == 'SET_IMU_MOUNT':
+    if cmd['command'] in ('SET_IMU_MOUNT', 'SET_BOARD_MOUNT'):
         for prop in props:
             name = prop['name']
             low, high = prop['range']
@@ -424,9 +424,11 @@ def _generate_method(cmd, objects):
         else:
             result += "        if not all(math.isfinite(value) for value in (sample.x, sample.y, sample.z)):\n            raise ValueError('Invalid fusion vector')\n"
         result += "        return sample\n"
-    elif cmd['command'] == 'GET_IMU_MOUNT':
+    elif cmd['command'] in ('GET_IMU_MOUNT', 'GET_BOARD_MOUNT'):
         result += f"        sample = {get_object_name(obj)}.decode(result)\n"
         result += "        if result[-1] > 1:\n            raise ValueError('Invalid IMU mount configured flag')\n"
+        if cmd['command'] == 'GET_BOARD_MOUNT':
+            result += "        if not sample.configured and any(result[:-1]):\n            raise ValueError('Unexpected unconfigured board pose')\n"
         for prop in obj['properties']:
             if 'range' in prop:
                 low, high = prop['range']

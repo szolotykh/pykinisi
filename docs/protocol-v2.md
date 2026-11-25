@@ -427,8 +427,8 @@ compact diagnostics and examples](fusion-experiment.md).
 ## IMU-only relative tracking
 
 See [IMU-only relative tracking](imu-tracking.md) for the protocol 2.20 opt-in,
-stationary calibration, bounded horizon and diagnostics. Protocol 2.23 adds a
-[shared IMU mounting configuration](imu-mounting.md) for rotated and displaced boards.
+stationary calibration, bounded horizon and diagnostics. Protocol 2.24 provides a
+[board-center mounting configuration](imu-mounting.md) for rotated and displaced boards.
 
 ## Tracking source selector
 
@@ -441,7 +441,7 @@ a control loop. Prepare the required producer explicitly.
 
 - Encoder and passive fused tracking require initialized platform odometry.
 - The passive observer requires mounting geometry. Use the shared physical mount
-  on protocol 2.23+. With legacy yaw-only setup, declare a centered, level board
+  on protocol 2.24+. With legacy yaw-only setup, declare a centered, level board
   with +Z up using `set_feedback_fusion_mount(yaw)`. Yaw is the angle of board
   +X in chassis XY, counterclockwise about chassis +Z, in radians. The legacy
   declaration is volatile. Read `get_feedback_fusion_mount()` to check it.
