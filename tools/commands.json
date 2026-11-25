@@ -1,5 +1,5 @@
 {
-  "version": "2.21.0",
+  "version": "2.22.0",
   "commands": [
     {
       "command": "GET_TEMPERATURE",
@@ -2934,6 +2934,60 @@
         "direction": "controller_to_client",
         "description": "Packed little-endian selector readback."
       }
+    },
+    {
+      "command": "GET_FEEDBACK_SOURCE_HEALTH",
+      "code": "0x6c",
+      "direction": "client_to_controller",
+      "category": "Feedback source",
+      "description": "Read producer health independently of selector and control. ENCODER is the running platform encoder batch, IMU_ONLY is physical BMI088 pair availability independent of the one-second estimate, FUSED is the passive fused estimate. Disagreement indicates conflicting observations without assigning sensor blame. HEALTHY means directly usable data. Comparability is separate. Historical provenance remains readable during failure. Reconnect reads board state. Requires READY, exact v0.4 and protocol 2.22+ with feedback_source_health.",
+      "properties": [
+        {
+          "name": "source",
+          "type": "uint8_t",
+          "description": "FeedbackSource value, excluding NONE.",
+          "range": [
+            0,
+            2
+          ]
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR"
+      ],
+      "response": {
+        "name": "feedback_source_health",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Read producer health independently of selector and control. ENCODER is the running platform encoder batch, IMU_ONLY is physical BMI088 pair availability independent of the one-second estimate, FUSED is the passive fused estimate. Disagreement indicates conflicting observations without assigning sensor blame. HEALTHY means directly usable data. Comparability is separate. Historical provenance remains readable during failure. Reconnect reads board state."
+      }
+    },
+    {
+      "command": "GET_FEEDBACK_IMU_CHANNELS",
+      "code": "0x6d",
+      "direction": "client_to_controller",
+      "category": "Feedback source",
+      "description": "Read independent last observed accelerometer and gyro acquisition times in board uptime microseconds. A timestamp of zero and age UINT32_MAX indicate no observed acquisition. These are physical source observations, independent of the finite IMU-only tracking window. A pair must meet the 35000 us age and 15000 us skew limits. Requires READY, exact v0.4 and protocol 2.22+ with feedback_source_health.",
+      "properties": [],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR"
+      ],
+      "response": {
+        "name": "feedback_imu_channels",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Read independent last observed accelerometer and gyro acquisition times in board uptime microseconds. A timestamp of zero and age UINT32_MAX indicate no observed acquisition. These are physical source observations, independent of the finite IMU-only tracking window. A pair must meet the 35000 us age and 15000 us skew limits."
+      }
     }
   ],
   "objects": [
@@ -3749,6 +3803,83 @@
           "description": "Angle of board +X in chassis XY, counterclockwise about +Z in radians. Rigid, level, centered board with +Z up."
         }
       ]
+    },
+    {
+      "name": "feedback_source_health",
+      "description": "Read producer health independently of selector and control. ENCODER is the running platform encoder batch, IMU_ONLY is physical BMI088 pair availability independent of the one-second estimate, FUSED is the passive fused estimate. Disagreement indicates conflicting observations without assigning sensor blame. HEALTHY means directly usable data. Comparability is separate. Historical provenance remains readable during failure. Reconnect reads board state.",
+      "properties": [
+        {
+          "name": "source",
+          "type": "uint8_t",
+          "description": "Echo of FeedbackSource request."
+        },
+        {
+          "name": "health",
+          "type": "uint8_t",
+          "description": "FeedbackSourceHealthState."
+        },
+        {
+          "name": "reason",
+          "type": "uint8_t",
+          "description": "FeedbackSourceReason for current producer availability."
+        },
+        {
+          "name": "detail",
+          "type": "uint8_t",
+          "description": "FusionFault explanation if present."
+        },
+        {
+          "name": "flags",
+          "type": "uint32_t",
+          "description": "FeedbackSourceHealthFlag bit mask."
+        },
+        {
+          "name": "sequence",
+          "type": "uint32_t",
+          "description": "Sequence of the last producer publication or observed distinct raw IMU pair, wrapping modulo 2^32; use PROVENANCE for presence."
+        },
+        {
+          "name": "timestamp_us",
+          "type": "uint64_t",
+          "description": "Last usable source time in board uptime microseconds. For the BMI088 pair this is its older die timestamp."
+        },
+        {
+          "name": "age_us",
+          "type": "uint32_t",
+          "description": "Age of that timestamp in board uptime microseconds, UINT32_MAX if absent, future or too old to represent."
+        },
+        {
+          "name": "max_age_us",
+          "type": "uint32_t",
+          "description": "Source freshness budget in microseconds."
+        }
+      ]
+    },
+    {
+      "name": "feedback_imu_channels",
+      "description": "Read independent last observed accelerometer and gyro acquisition times in board uptime microseconds. A timestamp of zero and age UINT32_MAX indicate no observed acquisition. These are physical source observations, independent of the finite IMU-only tracking window. A pair must meet the 35000 us age and 15000 us skew limits.",
+      "properties": [
+        {
+          "name": "accel_timestamp_us",
+          "type": "uint64_t",
+          "description": "Last observed accelerometer acquisition time in board uptime microseconds."
+        },
+        {
+          "name": "gyro_timestamp_us",
+          "type": "uint64_t",
+          "description": "Last observed gyro acquisition time in board uptime microseconds."
+        },
+        {
+          "name": "accel_age_us",
+          "type": "uint32_t",
+          "description": "Board-derived acquisition age in microseconds, UINT32_MAX if unknown."
+        },
+        {
+          "name": "gyro_age_us",
+          "type": "uint32_t",
+          "description": "Board-derived acquisition age in microseconds, UINT32_MAX if unknown."
+        }
+      ]
     }
   ],
   "header": {
@@ -4326,6 +4457,70 @@
       "id": 1,
       "name": "TWIST",
       "description": "Twist"
+    }
+  ],
+  "feedback_source_health_states": [
+    {
+      "id": 0,
+      "name": "HEALTHY",
+      "description": "Healthy"
+    },
+    {
+      "id": 1,
+      "name": "SUSPECT",
+      "description": "Suspect"
+    },
+    {
+      "id": 2,
+      "name": "UNAVAILABLE",
+      "description": "Unavailable"
+    },
+    {
+      "id": 3,
+      "name": "INDETERMINATE",
+      "description": "Indeterminate"
+    }
+  ],
+  "feedback_source_health_flags": [
+    {
+      "id": 1,
+      "name": "PROVENANCE",
+      "description": "Provenance"
+    },
+    {
+      "id": 2,
+      "name": "FRESH",
+      "description": "Fresh"
+    },
+    {
+      "id": 4,
+      "name": "DISAGREEMENT",
+      "description": "Disagreement"
+    },
+    {
+      "id": 8,
+      "name": "COMPARISON_AVAILABLE",
+      "description": "Comparison available"
+    },
+    {
+      "id": 16,
+      "name": "RECOVERING",
+      "description": "Recovering"
+    },
+    {
+      "id": 32,
+      "name": "RESTART_REQUIRED",
+      "description": "Restart required"
+    },
+    {
+      "id": 64,
+      "name": "TIMESTAMP_FAULT",
+      "description": "Timestamp fault"
+    },
+    {
+      "id": 128,
+      "name": "SATURATION",
+      "description": "Saturation"
     }
   ]
 }

@@ -22,6 +22,7 @@ __all__ = [
     'ImuTrackingStatus', 'ImuTrackingVector', 'ImuTrackingConfiguration',
     'FusionMode', 'FusionHealth', 'FusionFault', 'FusionFlag', 'FusionVectorKind',
     'FeedbackSource', 'FeedbackSourceReason', 'FeedbackSourceVectorKind', 'FeedbackSourceStatus',
+    'FeedbackSourceHealth', 'FeedbackImuChannels', 'FeedbackSourceHealthState', 'FeedbackSourceHealthFlag',
     'FeedbackSourceVector', 'FeedbackFusionMount', 'FeedbackSourceSnapshot',
     'FusionStatus', 'FusionVector', 'FusionConfiguration',
     'MotorCurrentLimit', 'get_motor_current_limit_options', 'supports_motor_current_limit',

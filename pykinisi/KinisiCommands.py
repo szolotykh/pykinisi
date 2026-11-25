@@ -6,10 +6,10 @@ Transport framing, message IDs, and synchronization live in KinisiController.
 
 import math
 import struct
-from enum import IntEnum
+from enum import IntEnum, IntFlag
 
 
-PROTOCOL_VERSION = (2, 21, 0)
+PROTOCOL_VERSION = (2, 22, 0)
 
 GET_TEMPERATURE = 0x50
 GET_IMU = 0x51
@@ -111,6 +111,8 @@ GET_FEEDBACK_SOURCE_STATUS = 0x68
 GET_FEEDBACK_SOURCE_VECTOR = 0x69
 SET_FEEDBACK_FUSION_MOUNT = 0x6A
 GET_FEEDBACK_FUSION_MOUNT = 0x6B
+GET_FEEDBACK_SOURCE_HEALTH = 0x6C
+GET_FEEDBACK_IMU_CHANNELS = 0x6D
 
 
 class ErrorCode(IntEnum):
@@ -1024,6 +1026,90 @@ class FeedbackFusionMount:
         return cls(*_unpack_payload('<Bd', payload))
 
 
+class FeedbackSourceHealth:
+    """Read producer health independently of selector and control. ENCODER is the running
+    platform encoder batch, IMU_ONLY is physical BMI088 pair availability independent of the
+    one-second estimate, FUSED is the passive fused estimate. Disagreement indicates
+    conflicting observations without assigning sensor blame. HEALTHY means directly usable
+    data. Comparability is separate. Historical provenance remains readable during failure.
+    Reconnect reads board state.
+
+    source: Echo of FeedbackSource request.
+    health: FeedbackSourceHealthState.
+    reason: FeedbackSourceReason for current producer availability.
+    detail: FusionFault explanation if present.
+    flags: FeedbackSourceHealthFlag bit mask.
+    sequence: Sequence of the last producer publication or observed distinct raw IMU pair,
+    wrapping modulo 2^32; use PROVENANCE for presence.
+    timestamp_us: Last usable source time in board uptime microseconds. For the BMI088 pair
+    this is its older die timestamp.
+    age_us: Age of that timestamp in board uptime microseconds, UINT32_MAX if absent, future
+    or too old to represent.
+    max_age_us: Source freshness budget in microseconds.
+    """
+
+    def __init__(self, source: int, health: int, reason: int, detail: int, flags: int, sequence: int, timestamp_us: int, age_us: int, max_age_us: int):
+        """Store the fields of one controller payload."""
+        self.source = source
+        self.health = health
+        self.reason = reason
+        self.detail = detail
+        self.flags = flags
+        self.sequence = sequence
+        self.timestamp_us = timestamp_us
+        self.age_us = age_us
+        self.max_age_us = max_age_us
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 28
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<BBBBIIQII', self.source, self.health, self.reason, self.detail, self.flags, self.sequence, self.timestamp_us, self.age_us, self.max_age_us))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'FeedbackSourceHealth':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<BBBBIIQII', payload))
+
+
+class FeedbackImuChannels:
+    """Read independent last observed accelerometer and gyro acquisition times in board uptime
+    microseconds. A timestamp of zero and age UINT32_MAX indicate no observed acquisition.
+    These are physical source observations, independent of the finite IMU-only tracking
+    window. A pair must meet the 35000 us age and 15000 us skew limits.
+
+    accel_timestamp_us: Last observed accelerometer acquisition time in board uptime
+    microseconds.
+    gyro_timestamp_us: Last observed gyro acquisition time in board uptime microseconds.
+    accel_age_us: Board-derived acquisition age in microseconds, UINT32_MAX if unknown.
+    gyro_age_us: Board-derived acquisition age in microseconds, UINT32_MAX if unknown.
+    """
+
+    def __init__(self, accel_timestamp_us: int, gyro_timestamp_us: int, accel_age_us: int, gyro_age_us: int):
+        """Store the fields of one controller payload."""
+        self.accel_timestamp_us = accel_timestamp_us
+        self.gyro_timestamp_us = gyro_timestamp_us
+        self.accel_age_us = accel_age_us
+        self.gyro_age_us = gyro_age_us
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 24
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<QQII', self.accel_timestamp_us, self.gyro_timestamp_us, self.accel_age_us, self.gyro_age_us))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'FeedbackImuChannels':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<QQII', payload))
+
+
 class SubscriptionMode(IntEnum):
     """Delivery behavior for a generic telemetry subscription."""
     PERIODIC = 0
@@ -1153,6 +1239,24 @@ class FeedbackSourceReason(IntEnum):
 class FeedbackSourceVectorKind(IntEnum):
     POSE = 0
     TWIST = 1
+
+
+class FeedbackSourceHealthState(IntEnum):
+    HEALTHY = 0
+    SUSPECT = 1
+    UNAVAILABLE = 2
+    INDETERMINATE = 3
+
+
+class FeedbackSourceHealthFlag(IntFlag):
+    PROVENANCE = 1
+    FRESH = 2
+    DISAGREEMENT = 4
+    COMPARISON_AVAILABLE = 8
+    RECOVERING = 16
+    RESTART_REQUIRED = 32
+    TIMESTAMP_FAULT = 64
+    SATURATION = 128
 
 
 EVENT_TOPICS = (6,)
@@ -2700,5 +2804,43 @@ class KinisiCommands:
         sample = FeedbackFusionMount.decode(result)
         if sample.confirmed > 1 or not math.isfinite(sample.mounting_yaw_rad) or abs(sample.mounting_yaw_rad) > math.pi:
             raise ValueError('Invalid feedback fusion mount')
+        return sample
+
+    def get_feedback_source_health(self, source: int) -> FeedbackSourceHealth:
+        """Read producer health independently of selector and control. ENCODER is the running
+        platform encoder batch, IMU_ONLY is physical BMI088 pair availability independent of
+        the one-second estimate, FUSED is the passive fused estimate. Disagreement indicates
+        conflicting observations without assigning sensor blame. HEALTHY means directly
+        usable data. Comparability is separate. Historical provenance remains readable
+        during failure. Reconnect reads board state. Requires READY, exact v0.4 and protocol
+        2.22+ with feedback_source_health.
+
+        source: FeedbackSource value, excluding NONE.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
+        """
+        if isinstance(source, bool) or not isinstance(source, int) or source not in (0, 1, 2):
+            raise ValueError('Invalid feedback source')
+        payload = struct.pack('<B', source)
+        result = self._request(GET_FEEDBACK_SOURCE_HEALTH, payload, FeedbackSourceHealth.get_size())
+        sample = FeedbackSourceHealth.decode(result)
+        if sample.source != source or sample.health not in tuple(FeedbackSourceHealthState) or sample.reason not in tuple(FeedbackSourceReason) or sample.detail not in tuple(FusionFault):
+            raise ValueError('Invalid feedback source health')
+        return sample
+
+    def get_feedback_imu_channels(self) -> FeedbackImuChannels:
+        """Read independent last observed accelerometer and gyro acquisition times in board
+        uptime microseconds. A timestamp of zero and age UINT32_MAX indicate no observed
+        acquisition. These are physical source observations, independent of the finite
+        IMU-only tracking window. A pair must meet the 35000 us age and 15000 us skew
+        limits. Requires READY, exact v0.4 and protocol 2.22+ with feedback_source_health.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
+        """
+        payload = struct.pack('<')
+        result = self._request(GET_FEEDBACK_IMU_CHANNELS, payload, FeedbackImuChannels.get_size())
+        sample = FeedbackImuChannels.decode(result)
         return sample
 

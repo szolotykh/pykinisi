@@ -110,7 +110,7 @@ Adjustable-current commands remain unimplemented in firmware.
 Both require a completed INIT/READY exchange. Sensor indices are integers from
 0 to 255; the board profile determines which indices are fitted. Temperature uses
 an 8-byte little-endian double. IMU returns six doubles (48 bytes):
-`acceleration_x`, `acceleration_y`, `acceleration_z` in m/s², and
+`acceleration_x`, `acceleration_y`, `acceleration_z` in m/sÂ², and
 `angular_velocity_x`, `angular_velocity_y`, `angular_velocity_z` in rad/s.
 Acceleration includes gravity. Values use native sensor axes; accelerometer and
 gyroscope samples are independent, with no orientation, fusion or calibration.
@@ -476,3 +476,17 @@ Use `controller.read_feedback_source_snapshot()` for a verified status, pose and
 twist. An invalid status returns `None` vectors. Three successive mismatched
 observations raise `ProtocolError`. A failed write requires explicit readback
 before deciding whether to retry.
+
+## Feedback source health
+
+On a READY model 1 v0.4.0 board running protocol 2.22 or later in the 2.x series, read the encoder batch, physical BMI088 pair, or passive fused estimate by source. Each read returns the board's current health, reason, native fusion fault detail, flags, sequence, acquisition timestamp, age and maximum age. Reads work independently of the selected source and leave the motion state untouched. The physical BMI088 may remain healthy after the separate finite IMU tracking estimate expires.
+
+```python
+if controller.supports_feedback_source_health():
+    imu = controller.get_feedback_source_health(FeedbackSource.IMU_ONLY)
+    channels = controller.get_feedback_imu_channels()
+```
+
+Timestamps and ages use board-clock microseconds. A source can retain its last timestamp and sequence during an outage. An unseen source reports zero timestamp and sequence with age `UINT32_MAX`. The separate channel read gives the latest accelerometer and gyro timestamps and ages, including one-sided outages. A usable BMI088 pair must meet the 35,000 µs age and 15,000 µs skew limits.
+
+Read health and flags together. `FRESH` describes the represented sample's age. `COMPARISON_AVAILABLE` indicates whether the producers can be compared. `DISAGREEMENT` identifies conflicting measurements without assigning blame. A subsequent read returns the board's recovery state and updated provenance.

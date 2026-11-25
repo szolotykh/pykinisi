@@ -9,7 +9,8 @@
       "capabilities": {
         "fusion_experiment": false,
         "imu_tracking": false,
-        "feedback_source_selector": false
+        "feedback_source_selector": false,
+        "feedback_source_health": false
       },
       "power": {
         "driver_sleep": false,
@@ -70,7 +71,8 @@
       "capabilities": {
         "fusion_experiment": false,
         "imu_tracking": false,
-        "feedback_source_selector": false
+        "feedback_source_selector": false,
+        "feedback_source_health": false
       },
       "power": {
         "driver_sleep": false,
@@ -131,7 +133,8 @@
       "capabilities": {
         "fusion_experiment": false,
         "imu_tracking": false,
-        "feedback_source_selector": false
+        "feedback_source_selector": false,
+        "feedback_source_health": false
       },
       "power": {
         "driver_sleep": true,
@@ -192,7 +195,8 @@
       "capabilities": {
         "fusion_experiment": false,
         "imu_tracking": false,
-        "feedback_source_selector": false
+        "feedback_source_selector": false,
+        "feedback_source_health": false
       },
       "power": {
         "driver_sleep": true,
@@ -253,7 +257,8 @@
       "capabilities": {
         "fusion_experiment": true,
         "imu_tracking": true,
-        "feedback_source_selector": true
+        "feedback_source_selector": true,
+        "feedback_source_health": true
       },
       "power": {
         "driver_sleep": true,

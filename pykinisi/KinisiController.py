@@ -20,6 +20,7 @@ from .KinisiCommands import (
     ENCODER_ODOMETRY_EVENT, PLATFORM_ODOMETRY_EVENT,
     EncoderOdometrySample, PlatformOdometrySample, GET_TEMPERATURE, GET_IMU, GET_MOTOR_CURRENT, GET_MOTOR_FAULTS, CLEAR_MOTOR_FAULTS, GET_PWM_FREQUENCY, SET_PWM_FREQUENCY, GET_MOTOR_CURRENT_LIMIT, SET_MOTOR_CURRENT_LIMIT,
     FeedbackSourceVectorKind, FeedbackSourceStatus, FeedbackSourceVector,
+    GET_FEEDBACK_SOURCE_HEALTH, GET_FEEDBACK_IMU_CHANNELS,
     SET_FEEDBACK_SOURCE, GET_FEEDBACK_SOURCE_STATUS, GET_FEEDBACK_SOURCE_VECTOR, SET_FEEDBACK_FUSION_MOUNT, GET_FEEDBACK_FUSION_MOUNT,
     SET_IMU_TRACKING, GET_IMU_TRACKING_STATUS, GET_IMU_TRACKING_VECTOR, GET_IMU_TRACKING_CONFIGURATION,
     SET_FUSION_EXPERIMENT, GET_FUSION_STATUS, GET_FUSION_VECTOR, GET_FUSION_CONFIGURATION,
@@ -231,15 +232,22 @@ class KinisiController(KinisiCommands):
                         info.protocol_major == 2 and info.protocol_minor >= 19 and
                         profile.get('capabilities', {}).get('fusion_experiment') is True)
 
-    def supports_feedback_source_selector(self):
-        """Require the exact board capability and READY protocol 2.21+."""
+    def _supports_feedback_capability(self, capability, minor):
         with self._lock:
             info = self.board_info
             profile = self.board_profile
             return bool(self.ready and info and profile and
                         (info.board_model, info.board_major, info.board_minor, info.board_patch) == (1, 0, 4, 0) and
-                        info.protocol_major == 2 and 21 <= info.protocol_minor <= 255 and
-                        profile.get('capabilities', {}).get('feedback_source_selector') is True)
+                        info.protocol_major == 2 and minor <= info.protocol_minor <= 255 and
+                        profile.get('capabilities', {}).get(capability) is True)
+
+    def supports_feedback_source_selector(self):
+        """Require the exact board capability and READY protocol 2.21+."""
+        return self._supports_feedback_capability('feedback_source_selector', 21)
+
+    def supports_feedback_source_health(self):
+        """Whether the board supports read-only source health and BMI088 channel times."""
+        return self._supports_feedback_capability('feedback_source_health', 22)
 
     def read_feedback_source_snapshot(self):
         """Bracket pose and twist with board status. Invalid status has no vectors."""
@@ -539,6 +547,8 @@ class KinisiController(KinisiCommands):
                 raise ProtocolError('Configuration storage requires a ready v0.4 controller running protocol 2.14 or newer')
             if command in (SET_DRIVER_SLEEP, GET_DRIVER_SLEEP) and not self.supports_driver_sleep():
                 raise ProtocolError('Driver sleep requires READY and a supported board: v0.3/Nano protocol 2.17+, v0.4 protocol 2.15+')
+            if command in (GET_FEEDBACK_SOURCE_HEALTH, GET_FEEDBACK_IMU_CHANNELS) and not self.supports_feedback_source_health():
+                raise ProtocolError('Feedback source health requires READY, exact v0.4.0 capability and protocol 2.22+')
             if command in (SET_FEEDBACK_SOURCE, GET_FEEDBACK_SOURCE_STATUS, GET_FEEDBACK_SOURCE_VECTOR, SET_FEEDBACK_FUSION_MOUNT, GET_FEEDBACK_FUSION_MOUNT) and not self.supports_feedback_source_selector():
                 raise ProtocolError('Feedback source selector requires READY, exact v0.4.0 capability and protocol 2.21+')
             if command in (SET_IMU_TRACKING, GET_IMU_TRACKING_STATUS, GET_IMU_TRACKING_VECTOR, GET_IMU_TRACKING_CONFIGURATION) and not self.supports_imu_tracking():
