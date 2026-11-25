@@ -110,7 +110,7 @@ Adjustable-current commands remain unimplemented in firmware.
 Both require a completed INIT/READY exchange. Sensor indices are integers from
 0 to 255; the board profile determines which indices are fitted. Temperature uses
 an 8-byte little-endian double. IMU returns six doubles (48 bytes):
-`acceleration_x`, `acceleration_y`, `acceleration_z` in m/sÂ², and
+`acceleration_x`, `acceleration_y`, `acceleration_z` in m/s², and
 `angular_velocity_x`, `angular_velocity_y`, `angular_velocity_z` in rad/s.
 Acceleration includes gravity. Values use native sensor axes; accelerometer and
 gyroscope samples are independent, with no orientation, fusion or calibration.
