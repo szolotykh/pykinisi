@@ -12,8 +12,9 @@ mode 0 retains the release path. This is not a general odometry-source selector
 and has no IMU-only mode. Comparative accuracy and physical performance remain
 unmeasured until separately reported.
 
-The caller must declare a rigid, level mount, component side up, with the IMU
-at the chassis reference point. Tilted or offset installations are unsupported.
+On protocol 2.23+, use the [physical mounting geometry](imu-mounting.md) for rotated
+or displaced installations. Legacy yaw-only setup assumes a rigid, level mount,
+component side up, with the IMU at the chassis reference point.
 Chassis axes are +X forward, +Y left, +Z up. `mounting_yaw_rad` is the angle of
 board +X expressed in chassis XY, counterclockwise about chassis +Z, in [-pi, pi].
 The transform is `Rz(yaw) * (-sensor_x, -sensor_y, sensor_z)`. Gravity cannot

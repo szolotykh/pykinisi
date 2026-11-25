@@ -28,12 +28,13 @@ Another window requires a deliberate stationary restart.
 
 ## Deliberate stationary origin
 
-Use a rigid, level mount with **sensor +Z up** and the IMU centered at the chassis
+For a rotated or displaced board, enter the [physical mounting geometry](imu-mounting.md) on protocol 2.23+.
+With legacy yaw-only setup, use a rigid, level mount with **sensor +Z up** and the IMU centered at the chassis
 reference point. Chassis axes are forward, left, up. Declare `mounting_yaw_rad`
 as the angle of **sensor +X**, counterclockwise about chassis +Z, in [-pi, pi].
 The transform is `Rz(yaw) * (sensor_x, sensor_y, sensor_z)`. This declaration uses
 sensor axes, not the board outline or the fusion experiment's board-axis angle.
-A backwards sensor requires pi radians. Tilt and lever-arm compensation are unsupported.
+A backwards sensor requires pi radians in this legacy setup.
 
 `SET_IMU_TRACKING(action, stationary_mount_confirmed, mounting_yaw_rad)` supports:
 
@@ -48,7 +49,8 @@ An ACK confirms the action, not a valid estimate. IMU stationarity checks cannot
 distinguish true rest from constant velocity. Caller confirmation is a deliberate
 attestation of rest and the supported mounting, not a measured guarantee.
 Faults, interruptions and expiry require an explicit restart; reconnect and reads
-never start or re-anchor tracking. Nothing is persisted by SAVE_CONFIGURATION.
+never start or re-anchor tracking. SAVE_CONFIGURATION can persist the explicit
+mount geometry. Tracking state, bias and origin are volatile.
 
 ## Diagnostics and freshness
 

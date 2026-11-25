@@ -10,7 +10,8 @@
         "fusion_experiment": false,
         "imu_tracking": false,
         "feedback_source_selector": false,
-        "feedback_source_health": false
+        "feedback_source_health": false,
+        "imu_mounting": false
       },
       "power": {
         "driver_sleep": false,
@@ -72,7 +73,8 @@
         "fusion_experiment": false,
         "imu_tracking": false,
         "feedback_source_selector": false,
-        "feedback_source_health": false
+        "feedback_source_health": false,
+        "imu_mounting": false
       },
       "power": {
         "driver_sleep": false,
@@ -134,7 +136,8 @@
         "fusion_experiment": false,
         "imu_tracking": false,
         "feedback_source_selector": false,
-        "feedback_source_health": false
+        "feedback_source_health": false,
+        "imu_mounting": false
       },
       "power": {
         "driver_sleep": true,
@@ -196,7 +199,8 @@
         "fusion_experiment": false,
         "imu_tracking": false,
         "feedback_source_selector": false,
-        "feedback_source_health": false
+        "feedback_source_health": false,
+        "imu_mounting": false
       },
       "power": {
         "driver_sleep": true,
@@ -258,7 +262,8 @@
         "fusion_experiment": true,
         "imu_tracking": true,
         "feedback_source_selector": true,
-        "feedback_source_health": true
+        "feedback_source_health": true,
+        "imu_mounting": true
       },
       "power": {
         "driver_sleep": true,

@@ -25,6 +25,7 @@ type_mapping = {name: "bool" if name == "bool" else "float" if name == "double" 
 DIRECTIONS = {"client_to_controller", "controller_to_client"}
 # These messages support handwritten session behavior, independently of schema version.
 SESSION_COMMANDS = {
+    "SET_IMU_MOUNT", "GET_IMU_MOUNT",
     "SET_DRIVER_SLEEP", "GET_DRIVER_SLEEP",
     "SET_BOARD_IDLE", "GET_BOARD_IDLE",
     "SAVE_CONFIGURATION", "GET_CONFIGURATION_FIELD",
@@ -354,6 +355,12 @@ def _generate_method(cmd, objects):
     if cmd['command'] == 'GET_FEEDBACK_SOURCE_VECTOR':
         result += "        if isinstance(kind, bool) or not isinstance(kind, int) or kind not in (0, 1):\n            raise ValueError('Invalid feedback vector kind')\n"
         result += "        if any(type(value) is not int or not 0 <= value <= 0xffffffff for value in (origin_id, sequence)):\n            raise ValueError('Invalid feedback sample key')\n"
+    if cmd['command'] == 'SET_IMU_MOUNT':
+        for prop in props:
+            name = prop['name']
+            low, high = prop['range']
+            result += f"        if type({name}) is not int or not {low} <= {name} <= {high}:\n"
+            result += f"            raise ValueError('Invalid {name}')\n"
     if cmd['command'] == 'SET_FEEDBACK_FUSION_MOUNT':
         result += "        if isinstance(mounting_yaw_rad, bool) or not isinstance(mounting_yaw_rad, (float, int)) or not math.isfinite(mounting_yaw_rad) or abs(mounting_yaw_rad) > math.pi:\n            raise ValueError('Invalid feedback fusion mounting yaw')\n"
     if cmd['command'] == 'SET_IMU_TRACKING':
@@ -416,6 +423,15 @@ def _generate_method(cmd, objects):
             result += "        if sample.mode > 2 or not math.isfinite(sample.mounting_yaw_rad) or abs(sample.mounting_yaw_rad) > math.pi:\n            raise ValueError('Invalid fusion configuration')\n"
         else:
             result += "        if not all(math.isfinite(value) for value in (sample.x, sample.y, sample.z)):\n            raise ValueError('Invalid fusion vector')\n"
+        result += "        return sample\n"
+    elif cmd['command'] == 'GET_IMU_MOUNT':
+        result += f"        sample = {get_object_name(obj)}.decode(result)\n"
+        result += "        if result[-1] > 1:\n            raise ValueError('Invalid IMU mount configured flag')\n"
+        for prop in obj['properties']:
+            if 'range' in prop:
+                low, high = prop['range']
+                name = prop['name']
+                result += f"        if not {low} <= sample.{name} <= {high}:\n            raise ValueError('Invalid {name}')\n"
         result += "        return sample\n"
     elif cmd['command'] == 'GET_IMU':
         result += f"        sample = {get_object_name(obj)}.decode(result)\n"

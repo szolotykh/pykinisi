@@ -9,7 +9,7 @@ import struct
 from enum import IntEnum, IntFlag
 
 
-PROTOCOL_VERSION = (2, 22, 0)
+PROTOCOL_VERSION = (2, 23, 0)
 
 GET_TEMPERATURE = 0x50
 GET_IMU = 0x51
@@ -113,6 +113,8 @@ SET_FEEDBACK_FUSION_MOUNT = 0x6A
 GET_FEEDBACK_FUSION_MOUNT = 0x6B
 GET_FEEDBACK_SOURCE_HEALTH = 0x6C
 GET_FEEDBACK_IMU_CHANNELS = 0x6D
+SET_IMU_MOUNT = 0x6E
+GET_IMU_MOUNT = 0x6F
 
 
 class ErrorCode(IntEnum):
@@ -1108,6 +1110,47 @@ class FeedbackImuChannels:
     def decode(cls, payload: bytes) -> 'FeedbackImuChannels':
         """Decode exactly one payload; reject truncation and trailing bytes."""
         return cls(*_unpack_payload('<QQII', payload))
+
+
+class ImuMountConfiguration:
+    """Signed board orientation and displacement to the chip in chassis axes.
+
+    roll_cdeg: Board-to-chassis roll in signed hundredths of a degree.
+    pitch_cdeg: Board-to-chassis pitch in signed hundredths of a degree.
+    yaw_cdeg: Board-to-chassis yaw in signed hundredths of a degree.
+    x_um: Signed displacement from the tracking origin to the BMI088 chip along chassis +X
+    (forward), in micrometres.
+    y_um: Signed displacement from the tracking origin to the BMI088 chip along chassis +Y
+    (left), in micrometres.
+    z_um: Signed displacement from the tracking origin to the BMI088 chip along chassis +Z
+    (up), in micrometres.
+    configured: True after explicit mount setup or restore. False selects legacy per-mode
+    yaw.
+    """
+
+    def __init__(self, roll_cdeg: int, pitch_cdeg: int, yaw_cdeg: int, x_um: int, y_um: int, z_um: int, configured: bool):
+        """Store the fields of one controller payload."""
+        self.roll_cdeg = roll_cdeg
+        self.pitch_cdeg = pitch_cdeg
+        self.yaw_cdeg = yaw_cdeg
+        self.x_um = x_um
+        self.y_um = y_um
+        self.z_um = z_um
+        self.configured = configured
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 19
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<hhhiii?', self.roll_cdeg, self.pitch_cdeg, self.yaw_cdeg, self.x_um, self.y_um, self.z_um, self.configured))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'ImuMountConfiguration':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<hhhiii?', payload))
 
 
 class SubscriptionMode(IntEnum):
@@ -2410,7 +2453,9 @@ class KinisiCommands:
     def save_configuration(self) -> None:
         """Save the complete running platform setup and motor PWM frequency to onboard FRAM.
         Available on v0.4 with protocol 2.14 or later. ACK confirms a durable save. A
-        subsequent boot restores the setup with outputs stopped.
+        subsequent boot restores the setup with outputs stopped. Protocol 2.23+ also saves
+        the applied physical IMU mount and accepts an explicitly configured mount before
+        platform commissioning.
 
         Controller errors: INVALID_LENGTH, INIT_REQUIRED, CLOCK_NOT_READY,
         SENSOR_NOT_AVAILABLE, PLATFORM_NOT_INITIALIZED, INVALID_ARGUMENT, INTERNAL_ERROR.
@@ -2509,23 +2554,26 @@ class KinisiCommands:
         commanded targets and motor outputs are zero; initialized controllers with idle zero
         targets are allowed. Mode 0 retains the legacy encoder path (boot default), 1 uses
         encoder feedback with the common chassis correction, and 2 uses fused feedback with
-        that same correction. No IMU-only mode. For modes 1/2 the caller declares a rigid,
-        level board with component side up, IMU at the chassis reference point, and
-        mounting_yaw_rad as the angle of board +X expressed in chassis XY, counterclockwise
-        about chassis +Z. Sensor-to-board axes are (-x,-y,+z); chassis axes are
-        forward/left/up. Reject nonfinite or out-of-range yaw, any observed configured
-        encoder movement in the preceding 100 ms, or a counter change since a fresh sample.
-        Stopped cold setup may ACK in WAITING; ACK does not establish readiness. Both
-        experimental modes require 100 ms of observed unchanged configured counters for
-        initial rest arming before accepting a motion target; once armed, ordinary target
-        updates remain accepted while moving; fused bias calibration may run within that
-        window. Reconfiguration cancels old targets. Sources may requalify automatically
-        after an ordinary sensor fault, but healthy inputs and a fresh target are required
-        before control resumes. Does not save to FRAM or start motion. Requires READY, exact
-        v0.4.0 fusion capability and protocol 2.19.
+        that same correction. No IMU-only mode. Without a configured physical mount, modes
+        1/2 require a rigid, level board with component side up, IMU at the chassis
+        reference point, and mounting_yaw_rad as the angle of board +X expressed in chassis
+        XY, counterclockwise about chassis +Z. Sensor-to-board axes are (-x,-y,+z); chassis
+        axes are forward/left/up. Reject nonfinite or out-of-range yaw, any observed
+        configured encoder movement in the preceding 100 ms, or a counter change since a
+        fresh sample. Stopped cold setup may ACK in WAITING; ACK does not establish
+        readiness. Both experimental modes require 100 ms of observed unchanged configured
+        counters for initial rest arming before accepting a motion target; once armed,
+        ordinary target updates remain accepted while moving; fused bias calibration may run
+        within that window. Reconfiguration cancels old targets. Sources may requalify
+        automatically after an ordinary sensor fault, but healthy inputs and a fresh target
+        are required before control resumes. Does not save to FRAM or start motion. Requires
+        READY, exact v0.4.0 fusion capability and protocol 2.19. On protocol 2.23+, a
+        configured physical mount takes precedence over legacy yaw. Read GET_IMU_MOUNT for
+        the applied geometry.
 
         mode: FusionMode value.
-        mounting_yaw_rad: Declared level centered mounting yaw in radians.
+        mounting_yaw_rad: Legacy board yaw in radians for a centered, level installation. A
+        configured physical mount takes precedence.
 
         Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
         SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, BOARD_IDLE, DRIVERS_ASLEEP,
@@ -2589,7 +2637,9 @@ class KinisiCommands:
     def get_fusion_configuration(self) -> FusionConfiguration:
         """Read the volatile experiment mode and declared mounting yaw without changing state.
         Reset selects legacy encoder mode; SAVE_CONFIGURATION does not persist this
-        experiment. Requires READY, exact v0.4.0 fusion capability and protocol 2.19.
+        experiment. Requires READY, exact v0.4.0 fusion capability and protocol 2.19. On
+        protocol 2.23+, a configured physical mount takes precedence over legacy yaw. Read
+        GET_IMU_MOUNT for the applied geometry.
 
         Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
         SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
@@ -2605,22 +2655,24 @@ class KinisiCommands:
         """Control volatile IMU-only relative tracking. START=0, RESET=2 and RECALIBRATE=3 are
         accepted from any state with stationary_mount_confirmed=1 and finite yaw in
         [-pi,pi]; all discard prior bias and pose and begin full cold stationary calibration
-        at a new relative origin. The caller confirms true zero velocity, rigid level
-        sensor-+Z-up mounting with IMU at the chassis reference point. Yaw is the angle of
-        sensor +X in chassis XY, counterclockwise about chassis +Z. Sensor-to-chassis
-        transform is Rz(yaw)*(x,y,z), axes forward/left/up. IMU stationarity checks cannot
-        establish zero constant velocity. STOP=1 requires confirmation=0 and yaw=0 and stops
-        integration. ACK confirms the action, not a valid estimate. Fault, expiry or
-        interruption requires deliberate restart; no automatic recovery. Not saved to FRAM.
-        Requires READY, exact model 1 hardware 0.4.0 with imu_tracking capability and
-        protocol 2.20+. Independent of platform, encoders and fusion; never commands motion
-        or changes control feedback.
+        at a new relative origin. The caller confirms true zero velocity and the actual
+        rigid installation. Without a configured physical mount, use a level sensor with +Z
+        up at the tracking origin. Legacy yaw is the angle of sensor +X in chassis XY,
+        counterclockwise about chassis +Z. The legacy sensor-to-chassis transform is
+        Rz(yaw)*(x,y,z), axes forward/left/up. IMU stationarity checks cannot establish zero
+        constant velocity. STOP=1 requires confirmation=0 and yaw=0 and stops integration.
+        ACK confirms the action, not a valid estimate. Fault, expiry or interruption
+        requires deliberate restart; no automatic recovery. Not saved to FRAM. Requires
+        READY, exact model 1 hardware 0.4.0 with imu_tracking capability and protocol 2.20+.
+        Independent of platform, encoders and fusion; never commands motion or changes
+        control feedback. On protocol 2.23+, a configured physical mount takes precedence
+        over legacy yaw. Read GET_IMU_MOUNT for the applied geometry.
 
         action: ImuTrackingAction value.
-        stationary_mount_confirmed: Explicit caller confirmation of stationary zero velocity
-        and the supported rigid level centered mount; 0 or 1.
-        mounting_yaw_rad: Angle of sensor +X in chassis XY, counterclockwise about chassis
-        +Z; sensor +Z up. Finite radians.
+        stationary_mount_confirmed: Explicit caller confirmation of zero velocity and the
+        declared rigid installation, 0 or 1.
+        mounting_yaw_rad: Legacy sensor +X yaw about chassis +Z in finite radians for a
+        level sensor. A configured physical mount takes precedence.
 
         Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
         SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, BOARD_IDLE, DRIVERS_ASLEEP.
@@ -2691,7 +2743,8 @@ class KinisiCommands:
         clears volatile tracking state; reconnect does not start or re-anchor tracking.
         Requires READY, exact model 1 hardware 0.4.0 with imu_tracking capability and
         protocol 2.20+. Independent of platform, encoders and fusion; never commands motion
-        or changes control feedback.
+        or changes control feedback. On protocol 2.23+, a configured physical mount takes
+        precedence over legacy yaw. Read GET_IMU_MOUNT for the applied geometry.
 
         Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
         SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
@@ -2780,11 +2833,13 @@ class KinisiCommands:
         return sample
 
     def set_feedback_fusion_mount(self, mounting_yaw_rad: float) -> None:
-        """Confirm a rigid centered level board mount for passive fused telemetry, with finite
-        board yaw in [-pi,pi]. Requires stopped outputs and disarmed controllers. Each
-        successful command discards prior passive calibration and pose; the observer
-        requires fresh stationary observations. This volatile setting applies only to
-        passive telemetry. Requires READY, exact v0.4 and protocol 2.21+.
+        """Declare the legacy centered, level board orientation for passive fused telemetry,
+        with finite board yaw in [-pi,pi]. Requires stopped outputs and disarmed
+        controllers. Each successful command discards prior passive calibration and pose;
+        the observer requires fresh stationary observations. This volatile setting applies
+        only to passive telemetry. Requires READY, exact v0.4 and protocol 2.21+. On
+        protocol 2.23+, a configured physical mount takes precedence over legacy yaw. Read
+        GET_IMU_MOUNT for the applied geometry.
 
         mounting_yaw_rad: Angle of board +X in chassis XY, counterclockwise about +Z in
         radians. Rigid, level, centered board with +Z up.
@@ -2799,7 +2854,9 @@ class KinisiCommands:
 
     def get_feedback_fusion_mount(self) -> FeedbackFusionMount:
         """Read the explicit volatile passive fusion mounting confirmation and board yaw. Reset
-        clears confirmation. Requires READY, exact v0.4 and protocol 2.21+.
+        clears confirmation. Requires READY, exact v0.4 and protocol 2.21+. On protocol
+        2.23+, a configured physical mount takes precedence over legacy yaw. Read
+        GET_IMU_MOUNT for the applied geometry.
 
         Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
         SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
@@ -2850,5 +2907,66 @@ class KinisiCommands:
         if ((sample.accel_timestamp_us == 0 and sample.accel_age_us != 0xffffffff) or
                 (sample.gyro_timestamp_us == 0 and sample.gyro_age_us != 0xffffffff)):
             raise ValueError('Invalid feedback IMU channel provenance')
+        return sample
+
+    def set_imu_mount(self, roll_cdeg: int, pitch_cdeg: int, yaw_cdeg: int, x_um: int, y_um: int, z_um: int) -> None:
+        """Set the complete rigid mount for IMU-only and fused tracking on a stopped, disarmed
+        v0.4. The board-to-chassis rotation is Rz(yaw) Ry(pitch) Rx(roll). A changed mount
+        requires fresh tracking initialization. SAVE_CONFIGURATION persists this geometry.
+        Requires READY and protocol 2.23+ with imu_mounting.
+
+        roll_cdeg: Board-to-chassis roll in signed hundredths of a degree.
+        pitch_cdeg: Board-to-chassis pitch in signed hundredths of a degree.
+        yaw_cdeg: Board-to-chassis yaw in signed hundredths of a degree.
+        x_um: Signed displacement from the tracking origin to the BMI088 chip along chassis
+        +X (forward), in micrometres.
+        y_um: Signed displacement from the tracking origin to the BMI088 chip along chassis
+        +Y (left), in micrometres.
+        z_um: Signed displacement from the tracking origin to the BMI088 chip along chassis
+        +Z (up), in micrometres.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, SOURCE_SWITCH_UNSAFE.
+        """
+        if type(roll_cdeg) is not int or not -18000 <= roll_cdeg <= 18000:
+            raise ValueError('Invalid roll_cdeg')
+        if type(pitch_cdeg) is not int or not -9000 <= pitch_cdeg <= 9000:
+            raise ValueError('Invalid pitch_cdeg')
+        if type(yaw_cdeg) is not int or not -18000 <= yaw_cdeg <= 18000:
+            raise ValueError('Invalid yaw_cdeg')
+        if type(x_um) is not int or not -10000000 <= x_um <= 10000000:
+            raise ValueError('Invalid x_um')
+        if type(y_um) is not int or not -10000000 <= y_um <= 10000000:
+            raise ValueError('Invalid y_um')
+        if type(z_um) is not int or not -10000000 <= z_um <= 10000000:
+            raise ValueError('Invalid z_um')
+        payload = struct.pack('<hhhiii', roll_cdeg, pitch_cdeg, yaw_cdeg, x_um, y_um, z_um)
+        result = self._request(SET_IMU_MOUNT, payload, 0)
+
+    def get_imu_mount(self) -> ImuMountConfiguration:
+        """Read the shared physical mount. When configured is false, IMU-only uses its legacy
+        sensor yaw and fusion its legacy board yaw. Requires READY and protocol 2.23+ with
+        imu_mounting.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
+        """
+        payload = struct.pack('<')
+        result = self._request(GET_IMU_MOUNT, payload, ImuMountConfiguration.get_size())
+        sample = ImuMountConfiguration.decode(result)
+        if result[-1] > 1:
+            raise ValueError('Invalid IMU mount configured flag')
+        if not -18000 <= sample.roll_cdeg <= 18000:
+            raise ValueError('Invalid roll_cdeg')
+        if not -9000 <= sample.pitch_cdeg <= 9000:
+            raise ValueError('Invalid pitch_cdeg')
+        if not -18000 <= sample.yaw_cdeg <= 18000:
+            raise ValueError('Invalid yaw_cdeg')
+        if not -10000000 <= sample.x_um <= 10000000:
+            raise ValueError('Invalid x_um')
+        if not -10000000 <= sample.y_um <= 10000000:
+            raise ValueError('Invalid y_um')
+        if not -10000000 <= sample.z_um <= 10000000:
+            raise ValueError('Invalid z_um')
         return sample
 
