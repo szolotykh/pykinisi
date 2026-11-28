@@ -348,6 +348,8 @@ def _generate_method(cmd, objects):
         result += "            raise ValueError('motor_index must be an integer from 0 to 3')\n"
     if cmd['command'] == 'SET_PWM_FREQUENCY':
         result += "        if isinstance(frequency_hz, bool) or not isinstance(frequency_hz, int) or frequency_hz not in tuple(PwmFrequency):\n            raise ValueError('Invalid PWM frequency')\n"
+    if cmd['command'] == 'INITIALIZE_OMNI_PLATFORM_ORIENTED':
+        result += "        if isinstance(wheel_orientation, bool) or not isinstance(wheel_orientation, int) or wheel_orientation not in tuple(OmniWheelOrientation):\n            raise ValueError('Invalid omni wheel orientation')\n"
     if cmd['command'] == 'INITIALIZE_MECANUM_PLATFORM_ORIENTED':
         result += "        if isinstance(roller_orientation, bool) or not isinstance(roller_orientation, int) or roller_orientation not in tuple(MecanumRollerOrientation):\n            raise ValueError('Invalid mecanum roller orientation')\n"
     if cmd['command'] == 'SET_DRIVER_SLEEP':
@@ -504,7 +506,7 @@ def generate_python_code(commands_data):
         for mode in commands_data['subscription_modes']:
             result += f"    {mode['name']} = {mode['id']}\n"
         result += '\n\n'
-    for key, name in [('subscription_triggers', 'SubscriptionTrigger'), ('subscription_deliveries', 'SubscriptionDelivery'), ('pwm_frequencies', 'PwmFrequency'), ('mecanum_roller_orientations', 'MecanumRollerOrientation')] + [(key, name) for key, name, _, _ in FUSION_CATALOGS + IMU_TRACKING_CATALOGS + FEEDBACK_CATALOGS + HEALTH_CATALOGS]:
+    for key, name in [('subscription_triggers', 'SubscriptionTrigger'), ('subscription_deliveries', 'SubscriptionDelivery'), ('pwm_frequencies', 'PwmFrequency'), ('mecanum_roller_orientations', 'MecanumRollerOrientation'), ('omni_wheel_orientations', 'OmniWheelOrientation')] + [(key, name) for key, name, _, _ in FUSION_CATALOGS + IMU_TRACKING_CATALOGS + FEEDBACK_CATALOGS + HEALTH_CATALOGS]:
         if commands_data.get(key):
             base = 'IntFlag' if key == 'feedback_source_health_flags' else 'IntEnum'
             result += f'class {name}({base}):\n'

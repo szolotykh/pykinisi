@@ -15,6 +15,7 @@ import serial
 from .KinisiCommands import (
     KinisiCommands, InitResponse, ErrorCode, INIT, READY, ERROR,
     INITIALIZE_MECANUM_PLATFORM_ORIENTED, MecanumRollerOrientation,
+    INITIALIZE_OMNI_PLATFORM_ORIENTED, OmniWheelOrientation,
     TIME_SYNC_REQUEST, TIME_SYNC_RESPONSE, START_ENCODER_ODOMETRY,
     GET_ENCODER_ODOMETRY, START_PLATFORM_ODOMETRY, GET_PLATFORM_ODOMETRY,
     PING, SET_HEARTBEAT_CONFIG, SUBSCRIBE_ODOMETRY, UNSUBSCRIBE_ODOMETRY,
@@ -254,6 +255,14 @@ class KinisiController(KinisiCommands):
             return (self._ready and self.board_profile is not None and
                     (info.board_model, info.board_major, info.board_minor, info.board_patch) == (1, 0, 4, 0) and
                     info.protocol_major == 2 and info.protocol_minor >= 14)
+
+    def get_omni_wheel_orientation(self):
+        """Read the single wheel position, or the fixed REAR layout on pre-2.26 firmware."""
+        value = self.get_configuration_field(8, 0)
+        try:
+            return OmniWheelOrientation(value)
+        except ValueError as exc:
+            raise ProtocolError('Invalid omni wheel orientation in configuration response') from exc
 
     def get_mecanum_roller_orientation(self):
         """Read the applied layout, or the fixed STANDARD layout on pre-2.25 firmware."""
@@ -626,14 +635,16 @@ class KinisiController(KinisiCommands):
                     raise ProtocolError('Motor current requires a ready protocol 2.7+ controller')
                 if command in (SUBSCRIBE, SUBSCRIBE_WITH_MODE, SUBSCRIBE_CONFIGURED) and self.board_profile is not None and not self.supports_topic(payload[0], payload[1]):
                     raise ProtocolError('This board does not support the selected telemetry source')
-            orientation_field = command == GET_CONFIGURATION_FIELD and payload == b'\x07\x00'
-            if orientation_field or command == INITIALIZE_MECANUM_PLATFORM_ORIENTED:
+            orientation_field = command == GET_CONFIGURATION_FIELD and payload in (bytes((7, 0)), bytes((8, 0)))
+            if orientation_field or command in (INITIALIZE_MECANUM_PLATFORM_ORIENTED, INITIALIZE_OMNI_PLATFORM_ORIENTED):
                 if not self._ready or self.board_info is None or self.board_info.protocol_major != 2:
-                    raise ProtocolError('Mecanum roller configuration requires a ready protocol 2.x controller')
-                if self.board_info.protocol_minor < 25:
+                    raise ProtocolError('Platform orientation requires a ready protocol 2.x controller')
+                omni = command == INITIALIZE_OMNI_PLATFORM_ORIENTED or (orientation_field and payload[0] == 8)
+                required_minor = 26 if omni else 25
+                if self.board_info.protocol_minor < required_minor:
                     if orientation_field:
-                        return struct.pack('<d', MecanumRollerOrientation.STANDARD)
-                    raise ProtocolError('Oriented mecanum initialization requires protocol 2.25 or newer')
+                        return struct.pack('<d', 0)  # Fixed legacy layout for each platform.
+                    raise ProtocolError(f'Oriented initialization requires protocol 2.{required_minor} or newer')
             if command in (SAVE_CONFIGURATION, GET_CONFIGURATION_FIELD) and not orientation_field and not self.supports_configuration_save():
                 raise ProtocolError('Configuration storage requires a ready v0.4 controller running protocol 2.14 or newer')
             if command in (SET_DRIVER_SLEEP, GET_DRIVER_SLEEP) and not self.supports_driver_sleep():

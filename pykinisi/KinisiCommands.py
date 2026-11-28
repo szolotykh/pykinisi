@@ -9,7 +9,7 @@ import struct
 from enum import IntEnum, IntFlag
 
 
-PROTOCOL_VERSION = (2, 25, 0)
+PROTOCOL_VERSION = (2, 26, 0)
 
 GET_TEMPERATURE = 0x50
 GET_IMU = 0x51
@@ -118,6 +118,7 @@ GET_IMU_MOUNT = 0x6F
 SET_BOARD_MOUNT = 0x85
 GET_BOARD_MOUNT = 0x86
 INITIALIZE_MECANUM_PLATFORM_ORIENTED = 0x87
+INITIALIZE_OMNI_PLATFORM_ORIENTED = 0x88
 
 
 class ErrorCode(IntEnum):
@@ -1232,6 +1233,11 @@ class MecanumRollerOrientation(IntEnum):
     MIRRORED = 1
 
 
+class OmniWheelOrientation(IntEnum):
+    REAR = 0
+    FRONT = 1
+
+
 class FusionMode(IntEnum):
     LEGACY_ENCODER = 0
     ENCODER_CORRECTION = 1
@@ -1872,7 +1878,8 @@ class KinisiCommands:
         """This command initializes an omni (3-wheel) platform and prepares it for use. It uses
         motor and encoder indices 0, 1 and 2 (one per wheel), which correspond to the
         is_reversed_0..2 and is_encoder_reversed_0..2 parameters. Motor index 3 is not used
-        by this platform and stays free for other purposes.
+        by this platform and stays free for other purposes. Selects the single-rear-wheel
+        (REAR) orientation.
 
         is_reversed_0: Determines if motor 0 is reversed.
         is_reversed_1: Determines if motor 1 is reversed.
@@ -2520,12 +2527,14 @@ class KinisiCommands:
 
     def get_configuration_field(self, field: int, index: int) -> float:
         """Read a running configuration field. Fields 0 through 6 require v0.4. Field 7 is
-        available on all boards with protocol 2.25 and a configured mecanum platform. Use
+        available on all boards with protocol 2.25 and a configured mecanum platform. Field
+        8 is available on all boards with protocol 2.26 and a configured Omni platform. Use
         GET_PWM_FREQUENCY for the board-wide switching frequency.
 
         field: 0 platform type (0 unconfigured, 1 differential, 2 omni, 3 mecanum), 1 wheel
         diameter, 2 track or length, 3 width or radius, 4 encoder resolution, 5 encoder
-        reversed, 6 motor reversed, 7 mecanum roller orientation (0 STANDARD, 1 MIRRORED).
+        reversed, 6 motor reversed, 7 mecanum roller orientation (0 STANDARD, 1 MIRRORED), 8
+        Omni single-wheel orientation (0 REAR, 1 FRONT).
         index: Zero for platform fields. For fields 4 through 6, use the zero-based channel
         index.
 
@@ -3139,4 +3148,39 @@ class KinisiCommands:
             raise ValueError('Invalid mecanum roller orientation')
         payload = struct.pack('<????????ddddB', is_reversed_0, is_reversed_1, is_reversed_2, is_reversed_3, is_encoder_reversed_0, is_encoder_reversed_1, is_encoder_reversed_2, is_encoder_reversed_3, length, width, wheels_diameter, encoder_resolution, roller_orientation)
         result = self._request(INITIALIZE_MECANUM_PLATFORM_ORIENTED, payload, 0)
+
+    def initialize_omni_platform_oriented(self, is_reversed_0: bool, is_reversed_1: bool, is_reversed_2: bool, is_encoder_reversed_0: bool, is_encoder_reversed_1: bool, is_encoder_reversed_2: bool, wheels_diameter: float, robot_radius: float, encoder_resolution: float, wheel_orientation: int) -> None:
+        """Initialize a 120-degree, three-wheel Omni platform in the marked chassis frame (+X
+        forward, +Y left, positive yaw counterclockwise). Requires READY and protocol 2.26.
+        REAR places W0 front right, W1 front left and W2 rear. FRONT rotates the complete
+        triangle 180 degrees: W0 rear left, W1 rear right and W2 front. Motor and encoder
+        indices stay attached to those wheels, with independent reversal flags. Dimensions
+        must be positive and encoder resolution nonnegative. Invalid requests leave the
+        running setup unchanged.
+
+        is_reversed_0: Determines if motor 0 is reversed.
+        is_reversed_1: Determines if motor 1 is reversed.
+        is_reversed_2: Determines if motor 2 is reversed.
+        is_encoder_reversed_0: Reverses encoder 0 counting direction, independently of motor
+        0's is_reversed_0. Set so the closed-loop feedback is negative (flip if the wheel
+        runs away when given a target speed).
+        is_encoder_reversed_1: Reverses encoder 1 counting direction, independently of motor
+        1's is_reversed_1. Set so the closed-loop feedback is negative (flip if the wheel
+        runs away when given a target speed).
+        is_encoder_reversed_2: Reverses encoder 2 counting direction, independently of motor
+        2's is_reversed_2. Set so the closed-loop feedback is negative (flip if the wheel
+        runs away when given a target speed).
+        wheels_diameter: Diameter of the robot wheels in meters.
+        robot_radius: Distance from the robot center to each wheel center in meters.
+        encoder_resolution: Encoder resolution in ticks per revolution. The value can not be
+        negative. If platform does not have encoders, the value should be set to zero.
+        wheel_orientation: Position of single wheel W2: REAR (0) or FRONT (1).
+
+        Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
+        INIT_REQUIRED, CLOCK_NOT_READY.
+        """
+        if isinstance(wheel_orientation, bool) or not isinstance(wheel_orientation, int) or wheel_orientation not in tuple(OmniWheelOrientation):
+            raise ValueError('Invalid omni wheel orientation')
+        payload = struct.pack('<??????dddB', is_reversed_0, is_reversed_1, is_reversed_2, is_encoder_reversed_0, is_encoder_reversed_1, is_encoder_reversed_2, wheels_diameter, robot_radius, encoder_resolution, wheel_orientation)
+        result = self._request(INITIALIZE_OMNI_PLATFORM_ORIENTED, payload, 0)
 

@@ -1,5 +1,5 @@
 {
-  "version": "2.25.0",
+  "version": "2.26.0",
   "commands": [
     {
       "command": "GET_TEMPERATURE",
@@ -910,7 +910,7 @@
       "command": "INITIALIZE_OMNI_PLATFORM",
       "code": "0x31",
       "direction": "client_to_controller",
-      "description": "This command initializes an omni (3-wheel) platform and prepares it for use. It uses motor and encoder indices 0, 1 and 2 (one per wheel), which correspond to the is_reversed_0..2 and is_encoder_reversed_0..2 parameters. Motor index 3 is not used by this platform and stays free for other purposes.",
+      "description": "This command initializes an omni (3-wheel) platform and prepares it for use. It uses motor and encoder indices 0, 1 and 2 (one per wheel), which correspond to the is_reversed_0..2 and is_encoder_reversed_0..2 parameters. Motor index 3 is not used by this platform and stays free for other purposes. Selects the single-rear-wheel (REAR) orientation.",
       "properties": [
         {
           "name": "is_reversed_0",
@@ -2448,12 +2448,12 @@
       "code": "0x5A",
       "direction": "client_to_controller",
       "category": "Configuration",
-      "description": "Read a running configuration field. Fields 0 through 6 require v0.4. Field 7 is available on all boards with protocol 2.25 and a configured mecanum platform. Use GET_PWM_FREQUENCY for the board-wide switching frequency.",
+      "description": "Read a running configuration field. Fields 0 through 6 require v0.4. Field 7 is available on all boards with protocol 2.25 and a configured mecanum platform. Field 8 is available on all boards with protocol 2.26 and a configured Omni platform. Use GET_PWM_FREQUENCY for the board-wide switching frequency.",
       "properties": [
         {
           "name": "field",
           "type": "uint8_t",
-          "description": "0 platform type (0 unconfigured, 1 differential, 2 omni, 3 mecanum), 1 wheel diameter, 2 track or length, 3 width or radius, 4 encoder resolution, 5 encoder reversed, 6 motor reversed, 7 mecanum roller orientation (0 STANDARD, 1 MIRRORED)."
+          "description": "0 platform type (0 unconfigured, 1 differential, 2 omni, 3 mecanum), 1 wheel diameter, 2 track or length, 3 width or radius, 4 encoder resolution, 5 encoder reversed, 6 motor reversed, 7 mecanum roller orientation (0 STANDARD, 1 MIRRORED), 8 Omni single-wheel orientation (0 REAR, 1 FRONT)."
         },
         {
           "name": "index",
@@ -3285,6 +3285,87 @@
       "errors": [
         "DRIVERS_ASLEEP",
         "BOARD_IDLE",
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY"
+      ]
+    },
+    {
+      "command": "INITIALIZE_OMNI_PLATFORM_ORIENTED",
+      "code": "0x88",
+      "direction": "client_to_controller",
+      "description": "Initialize a 120-degree, three-wheel Omni platform in the marked chassis frame (+X forward, +Y left, positive yaw counterclockwise). Requires READY and protocol 2.26. REAR places W0 front right, W1 front left and W2 rear. FRONT rotates the complete triangle 180 degrees: W0 rear left, W1 rear right and W2 front. Motor and encoder indices stay attached to those wheels, with independent reversal flags. Dimensions must be positive and encoder resolution nonnegative. Invalid requests leave the running setup unchanged.",
+      "properties": [
+        {
+          "name": "is_reversed_0",
+          "type": "bool",
+          "default": false,
+          "description": "Determines if motor 0 is reversed."
+        },
+        {
+          "name": "is_reversed_1",
+          "type": "bool",
+          "default": false,
+          "description": "Determines if motor 1 is reversed."
+        },
+        {
+          "name": "is_reversed_2",
+          "type": "bool",
+          "default": false,
+          "description": "Determines if motor 2 is reversed."
+        },
+        {
+          "name": "is_encoder_reversed_0",
+          "type": "bool",
+          "default": false,
+          "description": "Reverses encoder 0 counting direction, independently of motor 0's is_reversed_0. Set so the closed-loop feedback is negative (flip if the wheel runs away when given a target speed)."
+        },
+        {
+          "name": "is_encoder_reversed_1",
+          "type": "bool",
+          "default": false,
+          "description": "Reverses encoder 1 counting direction, independently of motor 1's is_reversed_1. Set so the closed-loop feedback is negative (flip if the wheel runs away when given a target speed)."
+        },
+        {
+          "name": "is_encoder_reversed_2",
+          "type": "bool",
+          "default": false,
+          "description": "Reverses encoder 2 counting direction, independently of motor 2's is_reversed_2. Set so the closed-loop feedback is negative (flip if the wheel runs away when given a target speed)."
+        },
+        {
+          "name": "wheels_diameter",
+          "type": "double",
+          "default": 1,
+          "description": "Diameter of the robot wheels in meters."
+        },
+        {
+          "name": "robot_radius",
+          "type": "double",
+          "default": 1,
+          "description": "Distance from the robot center to each wheel center in meters."
+        },
+        {
+          "name": "encoder_resolution",
+          "type": "double",
+          "default": 0,
+          "description": "Encoder resolution in ticks per revolution. The value can not be negative. If platform does not have encoders, the value should be set to zero."
+        },
+        {
+          "name": "wheel_orientation",
+          "type": "uint8_t",
+          "range": [
+            0,
+            1
+          ],
+          "default": 0,
+          "description": "Position of single wheel W2: REAR (0) or FRONT (1)."
+        }
+      ],
+      "category": "Platform",
+      "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
@@ -4964,6 +5045,16 @@
     {
       "id": 1,
       "name": "MIRRORED"
+    }
+  ],
+  "omni_wheel_orientations": [
+    {
+      "id": 0,
+      "name": "REAR"
+    },
+    {
+      "id": 1,
+      "name": "FRONT"
     }
   ]
 }

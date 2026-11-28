@@ -18,7 +18,7 @@ __all__ = [
     'EncoderOdometrySample', 'PlatformOdometrySample', 'ImuSample', 'KinisiError',
     'Topic', 'SubscriptionMode', 'SubscriptionTrigger', 'SubscriptionDelivery', 'Subscription', 'TemperatureSample', 'ImuTelemetrySample',
     'PwmFrequency', 'get_pwm_frequency_options', 'supports_pwm_frequency',
-    'MecanumRollerOrientation',
+    'MecanumRollerOrientation', 'OmniWheelOrientation',
     'ImuTrackingAction', 'ImuTrackingState', 'ImuTrackingFault', 'ImuTrackingFlag', 'ImuTrackingVectorKind',
     'ImuTrackingStatus', 'ImuTrackingVector', 'ImuTrackingConfiguration', 'ImuMountGeometry', 'ImuMountConfiguration',
     'BoardMountGeometry', 'BoardMountConfiguration',

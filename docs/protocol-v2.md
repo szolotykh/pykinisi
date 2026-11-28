@@ -1,6 +1,6 @@
 # Messages API v2
 
-pykinisi includes messages API **2.25.0** and connects to firmware **2.1+** within
+pykinisi includes messages API **2.26.0** and connects to firmware **2.1+** within
 protocol major 2, gating newer commands separately. API 1.x firmware and clients are
 incompatible with the new framing and responses; update firmware and the SDK
 together. Existing motor and GPIO method arguments remain the same. Methods
@@ -14,6 +14,22 @@ versions provide compatible fixes and do not block connection. An incompatible
 replacement command needs a new ID while retaining the original, or a major
 version bump. Protocol versions are independent of board revisions and SDK
 package versions. INIT does not translate between protocol majors.
+
+## Three-wheel Omni layout
+
+`initialize_omni_platform(...)` configures the original triangle with W2 at the rear. Protocol 2.26 adds a layout parameter to the same six reversal flags, wheel diameter, robot radius and encoder resolution. For the front layout, turn the entire triangle 180° in the robot frame. W2 is at the front, W0 at rear left and W1 at rear right. Connect W0–W2 to the matching motor and encoder ports. Set polarity independently for each wheel.
+
+```python
+from pykinisi import OmniWheelOrientation
+
+controller.initialize_omni_platform_oriented(
+    False, False, False, False, False, False,
+    0.10, 0.17, 4096, OmniWheelOrientation.FRONT,
+)
+layout = controller.get_omni_wheel_orientation()
+```
+
+The serial requests are 34 bytes for the original initializer and 35 bytes for the oriented one. Readback queries configuration field 8, index 0 after READY. On earlier firmware the SDK reports the sole supported layout, `REAR`, without sending a query. Use the original initializer for those boards.
 
 ## Four-wheel mecanum layout
 

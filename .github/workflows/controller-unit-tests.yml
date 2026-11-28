@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: szolotykh/kinisi-motor-controller-firmware
-          ref: ac4ccef34ca0be8da119dbaaf23e41c6ae22f386
+          ref: aaee7e4e262e7964be6581edb45cda10788965e2
           path: kinisi-motor-controller-firmware
           persist-credentials: false
 
