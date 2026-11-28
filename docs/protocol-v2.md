@@ -1,6 +1,6 @@
 # Messages API v2
 
-pykinisi includes messages API **2.11.0** and connects to firmware **2.1+** within
+pykinisi includes messages API **2.25.0** and connects to firmware **2.1+** within
 protocol major 2, gating newer commands separately. API 1.x firmware and clients are
 incompatible with the new framing and responses; update firmware and the SDK
 together. Existing motor and GPIO method arguments remain the same. Methods
@@ -14,6 +14,22 @@ versions provide compatible fixes and do not block connection. An incompatible
 replacement command needs a new ID while retaining the original, or a major
 version bump. Protocol versions are independent of board revisions and SDK
 package versions. INIT does not translate between protocol majors.
+
+## Four-wheel mecanum layout
+
+The existing `initialize_mecanum_platform(...)` selects the standard roller arrangement. Protocol 2.25 adds an explicit layout to the same motor and encoder reversal flags, wheel-center spacings, wheel diameter and encoder resolution. Indices 0–3 correspond to front right, rear right, rear left and front left viewed from above. Dimensions are in metres. The mirrored arrangement requires unequal width and length to control yaw.
+
+```python
+from pykinisi import MecanumRollerOrientation
+
+controller.initialize_mecanum_platform_oriented(
+    False, False, False, False, False, False, False, False,
+    0.34, 0.26, 0.10, 4096, MecanumRollerOrientation.MIRRORED,
+)
+layout = controller.get_mecanum_roller_orientation()
+```
+
+After READY, readback queries configuration field 7, index 0 on protocol 2.25+. Earlier firmware supports only `STANDARD`, which the SDK returns locally. Use the original initializer on those versions. The serial transport carries the 44-byte original and 45-byte oriented requests.
 
 ## Connect and identify the board
 

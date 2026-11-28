@@ -1,5 +1,5 @@
 {
-  "version": "2.24.0",
+  "version": "2.25.0",
   "commands": [
     {
       "command": "GET_TEMPERATURE",
@@ -822,7 +822,7 @@
       "command": "INITIALIZE_MECANUM_PLATFORM",
       "code": "0x30",
       "direction": "client_to_controller",
-      "description": "This command initializes a mecanum (4-wheel) platform and prepares it for use. It uses motor and encoder indices 0, 1, 2 and 3 (one per wheel), which correspond to the is_reversed_0..3 and is_encoder_reversed_0..3 parameters. All four motor slots are occupied by this platform.",
+      "description": "This command initializes a mecanum (4-wheel) platform and prepares it for use. It uses motor and encoder indices 0, 1, 2 and 3 (one per wheel), which correspond to the is_reversed_0..3 and is_encoder_reversed_0..3 parameters. All four motor slots are occupied by this platform. Selects the STANDARD roller layout.",
       "properties": [
         {
           "name": "is_reversed_0",
@@ -2448,12 +2448,12 @@
       "code": "0x5A",
       "direction": "client_to_controller",
       "category": "Configuration",
-      "description": "Read one field of the running v0.4 configuration. Use GET_PWM_FREQUENCY to read the board-wide switching frequency.",
+      "description": "Read a running configuration field. Fields 0 through 6 require v0.4. Field 7 is available on all boards with protocol 2.25 and a configured mecanum platform. Use GET_PWM_FREQUENCY for the board-wide switching frequency.",
       "properties": [
         {
           "name": "field",
           "type": "uint8_t",
-          "description": "0 platform type (0 unconfigured, 1 differential, 2 omni, 3 mecanum), 1 wheel diameter, 2 track or length, 3 width or radius, 4 encoder resolution, 5 encoder reversed, 6 motor reversed."
+          "description": "0 platform type (0 unconfigured, 1 differential, 2 omni, 3 mecanum), 1 wheel diameter, 2 track or length, 3 width or radius, 4 encoder resolution, 5 encoder reversed, 6 motor reversed, 7 mecanum roller orientation (0 STANDARD, 1 MIRRORED)."
         },
         {
           "name": "index",
@@ -3191,6 +3191,106 @@
         "direction": "controller_to_client",
         "description": "Applied orientation and chassis-to-PCB underside-center displacement."
       }
+    },
+    {
+      "command": "INITIALIZE_MECANUM_PLATFORM_ORIENTED",
+      "code": "0x87",
+      "direction": "client_to_controller",
+      "description": "Initialize four mecanum wheels with an explicit 45-degree roller layout. Requires protocol 2.25 and a READY session. Motor/encoder indices 0, 1, 2, 3 are front right, rear right, rear left, front left. Length and width are positive front-to-rear and side-to-side wheel-center spacings in meters. STANDARD uses yaw lever (width + length)/2. MIRRORED uses (width - length)/2 and requires unequal spacings. Invalid orientation or geometry leaves the running setup unchanged.",
+      "properties": [
+        {
+          "name": "is_reversed_0",
+          "type": "bool",
+          "default": false,
+          "description": "Determines if motor 0 is reversed."
+        },
+        {
+          "name": "is_reversed_1",
+          "type": "bool",
+          "default": false,
+          "description": "Determines if motor 1 is reversed."
+        },
+        {
+          "name": "is_reversed_2",
+          "type": "bool",
+          "default": false,
+          "description": "Determines if motor 2 is reversed."
+        },
+        {
+          "name": "is_reversed_3",
+          "type": "bool",
+          "default": false,
+          "description": "Determines if motor 3 is reversed."
+        },
+        {
+          "name": "is_encoder_reversed_0",
+          "type": "bool",
+          "default": false,
+          "description": "Reverses encoder 0 counting direction, independently of motor 0's is_reversed_0. Set so the closed-loop feedback is negative (flip if the wheel runs away when given a target speed)."
+        },
+        {
+          "name": "is_encoder_reversed_1",
+          "type": "bool",
+          "default": false,
+          "description": "Reverses encoder 1 counting direction, independently of motor 1's is_reversed_1. Set so the closed-loop feedback is negative (flip if the wheel runs away when given a target speed)."
+        },
+        {
+          "name": "is_encoder_reversed_2",
+          "type": "bool",
+          "default": false,
+          "description": "Reverses encoder 2 counting direction, independently of motor 2's is_reversed_2. Set so the closed-loop feedback is negative (flip if the wheel runs away when given a target speed)."
+        },
+        {
+          "name": "is_encoder_reversed_3",
+          "type": "bool",
+          "default": false,
+          "description": "Reverses encoder 3 counting direction, independently of motor 3's is_reversed_3. Set so the closed-loop feedback is negative (flip if the wheel runs away when given a target speed)."
+        },
+        {
+          "name": "length",
+          "type": "double",
+          "default": 1,
+          "description": "Length of the platform in meters."
+        },
+        {
+          "name": "width",
+          "type": "double",
+          "default": 1,
+          "description": "Width of the platform in meters."
+        },
+        {
+          "name": "wheels_diameter",
+          "type": "double",
+          "default": 1,
+          "description": "Diameter of the robot wheels in meters."
+        },
+        {
+          "name": "encoder_resolution",
+          "type": "double",
+          "default": 0,
+          "description": "Encoder resolution in ticks per revolution. The value can not be negative. If platform does not have encoders, the value should be set to zero."
+        },
+        {
+          "name": "roller_orientation",
+          "type": "uint8_t",
+          "range": [
+            0,
+            1
+          ],
+          "default": 0,
+          "description": "0 STANDARD (legacy), 1 MIRRORED (all four roller slopes reversed). Independent of each motor and encoder reversal."
+        }
+      ],
+      "category": "Platform",
+      "errors": [
+        "DRIVERS_ASLEEP",
+        "BOARD_IDLE",
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY"
+      ]
     }
   ],
   "objects": [
@@ -4854,6 +4954,16 @@
       "id": 128,
       "name": "SATURATION",
       "description": "Saturation"
+    }
+  ],
+  "mecanum_roller_orientations": [
+    {
+      "id": 0,
+      "name": "STANDARD"
+    },
+    {
+      "id": 1,
+      "name": "MIRRORED"
     }
   ]
 }

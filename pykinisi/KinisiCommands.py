@@ -9,7 +9,7 @@ import struct
 from enum import IntEnum, IntFlag
 
 
-PROTOCOL_VERSION = (2, 24, 0)
+PROTOCOL_VERSION = (2, 25, 0)
 
 GET_TEMPERATURE = 0x50
 GET_IMU = 0x51
@@ -117,6 +117,7 @@ SET_IMU_MOUNT = 0x6E
 GET_IMU_MOUNT = 0x6F
 SET_BOARD_MOUNT = 0x85
 GET_BOARD_MOUNT = 0x86
+INITIALIZE_MECANUM_PLATFORM_ORIENTED = 0x87
 
 
 class ErrorCode(IntEnum):
@@ -1226,6 +1227,11 @@ class PwmFrequency(IntEnum):
     KHZ_100 = 100000
 
 
+class MecanumRollerOrientation(IntEnum):
+    STANDARD = 0
+    MIRRORED = 1
+
+
 class FusionMode(IntEnum):
     LEGACY_ENCODER = 0
     ENCODER_CORRECTION = 1
@@ -1832,7 +1838,7 @@ class KinisiCommands:
         """This command initializes a mecanum (4-wheel) platform and prepares it for use. It
         uses motor and encoder indices 0, 1, 2 and 3 (one per wheel), which correspond to
         the is_reversed_0..3 and is_encoder_reversed_0..3 parameters. All four motor slots
-        are occupied by this platform.
+        are occupied by this platform. Selects the STANDARD roller layout.
 
         is_reversed_0: Determines if motor 0 is reversed.
         is_reversed_1: Determines if motor 1 is reversed.
@@ -2513,12 +2519,13 @@ class KinisiCommands:
         result = self._request(SAVE_CONFIGURATION, payload, 0)
 
     def get_configuration_field(self, field: int, index: int) -> float:
-        """Read one field of the running v0.4 configuration. Use GET_PWM_FREQUENCY to read the
-        board-wide switching frequency.
+        """Read a running configuration field. Fields 0 through 6 require v0.4. Field 7 is
+        available on all boards with protocol 2.25 and a configured mecanum platform. Use
+        GET_PWM_FREQUENCY for the board-wide switching frequency.
 
         field: 0 platform type (0 unconfigured, 1 differential, 2 omni, 3 mecanum), 1 wheel
         diameter, 2 track or length, 3 width or radius, 4 encoder resolution, 5 encoder
-        reversed, 6 motor reversed.
+        reversed, 6 motor reversed, 7 mecanum roller orientation (0 STANDARD, 1 MIRRORED).
         index: Zero for platform fields. For fields 4 through 6, use the zero-based channel
         index.
 
@@ -3092,4 +3099,44 @@ class KinisiCommands:
         if not -10031098 <= sample.z_um <= 10031098:
             raise ValueError('Invalid z_um')
         return sample
+
+    def initialize_mecanum_platform_oriented(self, is_reversed_0: bool, is_reversed_1: bool, is_reversed_2: bool, is_reversed_3: bool, is_encoder_reversed_0: bool, is_encoder_reversed_1: bool, is_encoder_reversed_2: bool, is_encoder_reversed_3: bool, length: float, width: float, wheels_diameter: float, encoder_resolution: float, roller_orientation: int) -> None:
+        """Initialize four mecanum wheels with an explicit 45-degree roller layout. Requires
+        protocol 2.25 and a READY session. Motor/encoder indices 0, 1, 2, 3 are front right,
+        rear right, rear left, front left. Length and width are positive front-to-rear and
+        side-to-side wheel-center spacings in meters. STANDARD uses yaw lever (width +
+        length)/2. MIRRORED uses (width - length)/2 and requires unequal spacings. Invalid
+        orientation or geometry leaves the running setup unchanged.
+
+        is_reversed_0: Determines if motor 0 is reversed.
+        is_reversed_1: Determines if motor 1 is reversed.
+        is_reversed_2: Determines if motor 2 is reversed.
+        is_reversed_3: Determines if motor 3 is reversed.
+        is_encoder_reversed_0: Reverses encoder 0 counting direction, independently of motor
+        0's is_reversed_0. Set so the closed-loop feedback is negative (flip if the wheel
+        runs away when given a target speed).
+        is_encoder_reversed_1: Reverses encoder 1 counting direction, independently of motor
+        1's is_reversed_1. Set so the closed-loop feedback is negative (flip if the wheel
+        runs away when given a target speed).
+        is_encoder_reversed_2: Reverses encoder 2 counting direction, independently of motor
+        2's is_reversed_2. Set so the closed-loop feedback is negative (flip if the wheel
+        runs away when given a target speed).
+        is_encoder_reversed_3: Reverses encoder 3 counting direction, independently of motor
+        3's is_reversed_3. Set so the closed-loop feedback is negative (flip if the wheel
+        runs away when given a target speed).
+        length: Length of the platform in meters.
+        width: Width of the platform in meters.
+        wheels_diameter: Diameter of the robot wheels in meters.
+        encoder_resolution: Encoder resolution in ticks per revolution. The value can not be
+        negative. If platform does not have encoders, the value should be set to zero.
+        roller_orientation: 0 STANDARD (legacy), 1 MIRRORED (all four roller slopes
+        reversed). Independent of each motor and encoder reversal.
+
+        Controller errors: DRIVERS_ASLEEP, BOARD_IDLE, INVALID_LENGTH, INVALID_ARGUMENT,
+        INTERNAL_ERROR, INIT_REQUIRED, CLOCK_NOT_READY.
+        """
+        if isinstance(roller_orientation, bool) or not isinstance(roller_orientation, int) or roller_orientation not in tuple(MecanumRollerOrientation):
+            raise ValueError('Invalid mecanum roller orientation')
+        payload = struct.pack('<????????ddddB', is_reversed_0, is_reversed_1, is_reversed_2, is_reversed_3, is_encoder_reversed_0, is_encoder_reversed_1, is_encoder_reversed_2, is_encoder_reversed_3, length, width, wheels_diameter, encoder_resolution, roller_orientation)
+        result = self._request(INITIALIZE_MECANUM_PLATFORM_ORIENTED, payload, 0)
 

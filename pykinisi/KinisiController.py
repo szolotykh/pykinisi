@@ -14,6 +14,7 @@ import serial
 
 from .KinisiCommands import (
     KinisiCommands, InitResponse, ErrorCode, INIT, READY, ERROR,
+    INITIALIZE_MECANUM_PLATFORM_ORIENTED, MecanumRollerOrientation,
     TIME_SYNC_REQUEST, TIME_SYNC_RESPONSE, START_ENCODER_ODOMETRY,
     GET_ENCODER_ODOMETRY, START_PLATFORM_ODOMETRY, GET_PLATFORM_ODOMETRY,
     PING, SET_HEARTBEAT_CONFIG, SUBSCRIBE_ODOMETRY, UNSUBSCRIBE_ODOMETRY,
@@ -253,6 +254,14 @@ class KinisiController(KinisiCommands):
             return (self._ready and self.board_profile is not None and
                     (info.board_model, info.board_major, info.board_minor, info.board_patch) == (1, 0, 4, 0) and
                     info.protocol_major == 2 and info.protocol_minor >= 14)
+
+    def get_mecanum_roller_orientation(self):
+        """Read the applied layout, or the fixed STANDARD layout on pre-2.25 firmware."""
+        value = self.get_configuration_field(7, 0)
+        try:
+            return MecanumRollerOrientation(value)
+        except ValueError as exc:
+            raise ProtocolError('Invalid mecanum roller orientation in configuration response') from exc
 
     def supports_driver_sleep(self):
         """Require READY and the minimum protocol for the exact supported board."""
@@ -617,7 +626,15 @@ class KinisiController(KinisiCommands):
                     raise ProtocolError('Motor current requires a ready protocol 2.7+ controller')
                 if command in (SUBSCRIBE, SUBSCRIBE_WITH_MODE, SUBSCRIBE_CONFIGURED) and self.board_profile is not None and not self.supports_topic(payload[0], payload[1]):
                     raise ProtocolError('This board does not support the selected telemetry source')
-            if command in (SAVE_CONFIGURATION, GET_CONFIGURATION_FIELD) and not self.supports_configuration_save():
+            orientation_field = command == GET_CONFIGURATION_FIELD and payload == b'\x07\x00'
+            if orientation_field or command == INITIALIZE_MECANUM_PLATFORM_ORIENTED:
+                if not self._ready or self.board_info is None or self.board_info.protocol_major != 2:
+                    raise ProtocolError('Mecanum roller configuration requires a ready protocol 2.x controller')
+                if self.board_info.protocol_minor < 25:
+                    if orientation_field:
+                        return struct.pack('<d', MecanumRollerOrientation.STANDARD)
+                    raise ProtocolError('Oriented mecanum initialization requires protocol 2.25 or newer')
+            if command in (SAVE_CONFIGURATION, GET_CONFIGURATION_FIELD) and not orientation_field and not self.supports_configuration_save():
                 raise ProtocolError('Configuration storage requires a ready v0.4 controller running protocol 2.14 or newer')
             if command in (SET_DRIVER_SLEEP, GET_DRIVER_SLEEP) and not self.supports_driver_sleep():
                 raise ProtocolError('Driver sleep requires READY and a supported board: v0.3/Nano protocol 2.17+, v0.4 protocol 2.15+')

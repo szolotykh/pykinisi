@@ -26,6 +26,16 @@ def validate_subscription_settings(schema):
 
 def validate_metadata(schema, sizes):
     validate_subscription_settings(schema)
+    catalog = schema.get('mecanum_roller_orientations')
+    oriented = next((c for c in schema['commands'] if c['command'] == 'INITIALIZE_MECANUM_PLATFORM_ORIENTED'), None)
+    if catalog is not None or oriented is not None:
+        if not oriented or not catalog or [(r['id'], r['name']) for r in catalog] != [(0, 'STANDARD'), (1, 'MIRRORED')] or any(type(r['id']) is not int for r in catalog):
+            raise ValueError('Invalid mecanum roller orientation catalog')
+        legacy = next((c for c in schema['commands'] if c['command'] == 'INITIALIZE_MECANUM_PLATFORM'), {})
+        legacy_fields = [(p['name'], p['type']) for p in legacy.get('properties', [])]
+        oriented_fields = [(p['name'], p['type']) for p in oriented.get('properties', [])]
+        if not legacy_fields or oriented_fields != legacy_fields + [('roller_orientation', 'uint8_t')]:
+            raise ValueError('Invalid oriented mecanum initializer layout')
     def version(value):
         if isinstance(value, str) and re.fullmatch(r'(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)', value):
             return tuple(map(int, value.split('.')))
