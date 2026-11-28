@@ -5,7 +5,7 @@ from ._version import __version__
 from .KinisiCommands import *
 from .KinisiController import (
     KinisiController, MotorIndex, EncoderIndex, GPIOIndex, GPIOMode, State,
-    ClockMode, ClockQuality, Subscription,
+    ClockMode, ClockQuality, Subscription, FeedbackSourceSnapshot, ImuMountGeometry, BoardMountGeometry,
 )
 from .errors import KinisiError, ConnectionClosedError, ProtocolError, RequestTimeoutError, ControllerError
 from .board_profile import get_board_profile, has_board_sensor, supports_board_sensor, supports_motor_current, supports_motor_faults, get_motor_current_limit_options, supports_motor_current_limit, get_pwm_frequency_options, supports_pwm_frequency
@@ -18,6 +18,15 @@ __all__ = [
     'EncoderOdometrySample', 'PlatformOdometrySample', 'ImuSample', 'KinisiError',
     'Topic', 'SubscriptionMode', 'SubscriptionTrigger', 'SubscriptionDelivery', 'Subscription', 'TemperatureSample', 'ImuTelemetrySample',
     'PwmFrequency', 'get_pwm_frequency_options', 'supports_pwm_frequency',
+    'MecanumRollerOrientation', 'OmniWheelOrientation',
+    'ImuTrackingAction', 'ImuTrackingState', 'ImuTrackingFault', 'ImuTrackingFlag', 'ImuTrackingVectorKind',
+    'ImuTrackingStatus', 'ImuTrackingVector', 'ImuTrackingConfiguration', 'ImuMountGeometry', 'ImuMountConfiguration',
+    'BoardMountGeometry', 'BoardMountConfiguration',
+    'FusionMode', 'FusionHealth', 'FusionFault', 'FusionFlag', 'FusionVectorKind',
+    'FeedbackSource', 'FeedbackSourceReason', 'FeedbackSourceVectorKind', 'FeedbackSourceStatus',
+    'FeedbackSourceHealth', 'FeedbackImuChannels', 'FeedbackSourceHealthState', 'FeedbackSourceHealthFlag',
+    'FeedbackSourceVector', 'FeedbackFusionMount', 'FeedbackSourceSnapshot',
+    'FusionStatus', 'FusionVector', 'FusionConfiguration',
     'MotorCurrentLimit', 'get_motor_current_limit_options', 'supports_motor_current_limit',
     'MotorCurrentSample', 'supports_motor_current',
     'MotorFaultStatus', 'MotorFaultSample', 'supports_motor_faults',

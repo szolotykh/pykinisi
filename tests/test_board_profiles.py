@@ -27,6 +27,10 @@ class BoardProfileTests(unittest.TestCase):
             self.assertEqual(profile['board'], {'model': 1, 'revision': f'0.{minor}.0'})
             self.assertEqual(profile['resources'], dict(motors=4, encoders=encoders, gpio=gpio, status_leds=1))
             self.assertIs(profile, get_board_profile(identity(minor, 1)))
+            if minor == 4:
+                self.assertEqual(profile['imu_geometry']['underside_center_to_imu_um'], (-15373, 26953, 2075))
+            else:
+                self.assertNotIn('imu_geometry', profile)
             self.assertEqual([m['current_sense'] for m in profile['motor_features']], [minor == 4] * 4)
             self.assertEqual([m['current_limit'] for m in profile['motor_features']], [minor == 4] * 4)
 
@@ -42,6 +46,16 @@ class BoardProfileTests(unittest.TestCase):
         for minor in (1, 2, 3):
             self.assertFalse(supports_board_sensor(identity(minor), 'temperature'))
             self.assertFalse(has_board_sensor(identity(minor), 'imu'))
+
+    def test_nano_is_an_exact_distinct_profile(self):
+        nano = get_board_profile(identity(3, board_patch=1))
+        original = get_board_profile(identity(3))
+        self.assertIsNot(nano, original)
+        self.assertEqual(nano['board']['revision'], '0.3.1')
+        self.assertTrue(nano['power']['driver_sleep'])
+        self.assertTrue(nano['power']['board_idle'])
+        self.assertEqual(nano['resources'], original['resources'])
+        self.assertIsNone(get_board_profile(identity(3, board_patch=2)))
 
     def test_unknown_or_malformed_identity_has_no_fallback(self):
         for info in (None, {}, identity(99), identity(board_patch=1), identity(board_model=2),
@@ -70,10 +84,27 @@ class ProfileUpdaterTests(unittest.TestCase):
         self.updater = load_module('profile_updater', ROOT / 'tools/update-board-profiles.py')
         self.bundle = json.loads((ROOT / 'pykinisi/board_profiles.json').read_text(encoding='utf-8'))
 
+    def test_generated_mini_geometry_uses_input_vector(self):
+        mini = self.bundle['boards'][-1]
+        self.assertEqual(mini['imu_geometry']['underside_center_to_imu_um'], [-15373, 26953, 2075])
+        mini['imu_geometry']['underside_center_to_imu_um'] = [105, -206, 307]
+        generated = json.loads(self.updater.generate(self.bundle))
+        self.assertEqual(generated['boards'][-1]['imu_geometry']['underside_center_to_imu_um'], [105, -206, 307])
+        del mini['imu_geometry']
+        self.updater.generate(self.bundle)
+        for invalid in ([1, 2], [False, 2, 3], [1.0, 2, 3], [1, 2, 2**31], [-2**31-1, 2, 3]):
+            mini['imu_geometry'] = {'underside_center_to_imu_um': invalid}
+            with self.assertRaises(ValueError):
+                self.updater.generate(self.bundle)
+        del mini['imu_geometry']
+        self.bundle['boards'][0]['imu_geometry'] = {'underside_center_to_imu_um': [1, 2, 3]}
+        with self.assertRaises(ValueError):
+            self.updater.generate(self.bundle)
+
     def test_bundled_output_is_deterministic_and_public(self):
         self.assertEqual(self.updater.generate(self.bundle),
                          (ROOT / 'pykinisi/board_profiles.json').read_text(encoding='utf-8'))
-        self.assertEqual(len(self.bundle['boards']), 4)
+        self.assertEqual(len(self.bundle['boards']), 5)
         private_fields = {'pin', 'bus', 'timer', 'address', 'mcu', 'build_define', 'control_model'}
 
         def inspect(value):
@@ -95,8 +126,11 @@ class ProfileUpdaterTests(unittest.TestCase):
             lambda b: b['boards'].append(deepcopy(b['boards'][0])),
             lambda b: b['boards'][0]['board'].update(build_define='MP_V1'),
             lambda b: b['boards'][0]['resources'].update(motors=True),
-            lambda b: b['boards'][3]['sensors']['imu'][0].update(id=1),
-            lambda b: b['boards'][3]['motor_features'][0].update(current_limit='yes'),
+            lambda b: b['boards'][4]['power'].update(driver_sleep=1),
+            lambda b: b['boards'][4]['power'].update(board_idle=1),
+            lambda b: b['boards'][4]['power'].update(sleep_pin='PB0'),
+            lambda b: b['boards'][4]['sensors']['imu'][0].update(id=1),
+            lambda b: b['boards'][4]['motor_features'][0].update(current_limit='yes'),
         ):
             bundle = deepcopy(self.bundle)
             mutate(bundle)
@@ -106,6 +140,12 @@ class ProfileUpdaterTests(unittest.TestCase):
     def test_source_is_explicit(self):
         with mock.patch('sys.stderr', new=io.StringIO()), self.assertRaises(SystemExit):
             self.updater.main([])
+
+    def test_older_power_profiles_remain_valid(self):
+        for profile in self.bundle['boards']:
+            self.assertEqual(profile['power']['board_idle'], profile['board']['revision'] in ('0.3.0', '0.3.1', '0.4.0'))
+            profile['power'].pop('board_idle')
+        self.updater.generate(self.bundle)
 
     def test_local_import_check_and_failed_import_preserve_output(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -1,5 +1,5 @@
 {
-  "version": "2.13.0",
+  "version": "2.26.0",
   "commands": [
     {
       "command": "GET_TEMPERATURE",
@@ -143,6 +143,7 @@
       ],
       "category": "Motor",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
@@ -177,6 +178,7 @@
       ],
       "category": "Motor",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
@@ -227,6 +229,7 @@
       ],
       "category": "Motor",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
@@ -301,11 +304,14 @@
       ],
       "category": "Motor Controller",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
         "MOTOR_OWNED",
-        "INIT_REQUIRED"
+        "INIT_REQUIRED",
+        "ENCODER_NOT_INITIALIZED",
+        "SAMPLE_NOT_AVAILABLE"
       ]
     },
     {
@@ -331,12 +337,15 @@
       ],
       "category": "Motor Controller",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
         "MOTOR_OWNED",
         "CONTROLLER_NOT_INITIALIZED",
-        "INIT_REQUIRED"
+        "INIT_REQUIRED",
+        "ENCODER_NOT_INITIALIZED",
+        "SAMPLE_NOT_AVAILABLE"
       ]
     },
     {
@@ -813,7 +822,7 @@
       "command": "INITIALIZE_MECANUM_PLATFORM",
       "code": "0x30",
       "direction": "client_to_controller",
-      "description": "This command initializes a mecanum (4-wheel) platform and prepares it for use. It uses motor and encoder indices 0, 1, 2 and 3 (one per wheel), which correspond to the is_reversed_0..3 and is_encoder_reversed_0..3 parameters. All four motor slots are occupied by this platform.",
+      "description": "This command initializes a mecanum (4-wheel) platform and prepares it for use. It uses motor and encoder indices 0, 1, 2 and 3 (one per wheel), which correspond to the is_reversed_0..3 and is_encoder_reversed_0..3 parameters. All four motor slots are occupied by this platform. Selects the STANDARD roller layout.",
       "properties": [
         {
           "name": "is_reversed_0",
@@ -890,6 +899,7 @@
       ],
       "category": "Platform",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
@@ -900,7 +910,7 @@
       "command": "INITIALIZE_OMNI_PLATFORM",
       "code": "0x31",
       "direction": "client_to_controller",
-      "description": "This command initializes an omni (3-wheel) platform and prepares it for use. It uses motor and encoder indices 0, 1 and 2 (one per wheel), which correspond to the is_reversed_0..2 and is_encoder_reversed_0..2 parameters. Motor index 3 is not used by this platform and stays free for other purposes.",
+      "description": "This command initializes an omni (3-wheel) platform and prepares it for use. It uses motor and encoder indices 0, 1 and 2 (one per wheel), which correspond to the is_reversed_0..2 and is_encoder_reversed_0..2 parameters. Motor index 3 is not used by this platform and stays free for other purposes. Selects the single-rear-wheel (REAR) orientation.",
       "properties": [
         {
           "name": "is_reversed_0",
@@ -942,13 +952,13 @@
           "name": "wheels_diameter",
           "type": "double",
           "default": 1,
-          "description": "Diameter of the robot wheels in millimeters."
+          "description": "Diameter of the robot wheels in meters."
         },
         {
           "name": "robot_radius",
           "type": "double",
           "default": 1,
-          "description": "Distance berween the center of the robot and the center of the wheels in millimeters."
+          "description": "Distance from the robot center to each wheel center in meters."
         },
         {
           "name": "encoder_resolution",
@@ -959,6 +969,7 @@
       ],
       "category": "Platform",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
@@ -1016,6 +1027,7 @@
       ],
       "category": "Platform",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
@@ -1058,6 +1070,7 @@
       ],
       "category": "Platform",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
@@ -1098,18 +1111,21 @@
       ],
       "category": "Platform",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
+        "ENCODER_NOT_INITIALIZED",
         "PLATFORM_NOT_INITIALIZED",
-        "INIT_REQUIRED"
+        "INIT_REQUIRED",
+        "SAMPLE_NOT_AVAILABLE"
       ]
     },
     {
       "command": "SET_PLATFORM_TARGET_VELOCITY",
       "code": "0x42",
       "direction": "client_to_controller",
-      "description": "This command set the target velocity for the platform in meters per second. Cancels platform position control; initialize it again before another pose target.",
+      "description": "This command set the target velocity for the platform in meters per second. Cancels platform position control; initialize it again before another pose target. With an active fusion experiment, rejects invalid or stale feedback and targets fenced by an earlier fault with SAMPLE_NOT_AVAILABLE; both experimental modes require 100 ms of observed unchanged configured counters for initial rest arming. Once armed, ordinary target updates remain accepted while moving. Wait for healthy feedback and submit a fresh target; stopped cold configuration can ACK while still WAITING.",
       "properties": [
         {
           "name": "x",
@@ -1129,12 +1145,15 @@
       ],
       "category": "Platform",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
         "PLATFORM_NOT_INITIALIZED",
         "CONTROLLER_NOT_INITIALIZED",
-        "INIT_REQUIRED"
+        "INIT_REQUIRED",
+        "SAMPLE_NOT_AVAILABLE",
+        "ENCODER_NOT_INITIALIZED"
       ]
     },
     {
@@ -1180,6 +1199,7 @@
         "INTERNAL_ERROR",
         "INIT_REQUIRED",
         "CLOCK_NOT_READY",
+        "ENCODER_NOT_INITIALIZED",
         "PLATFORM_NOT_INITIALIZED"
       ]
     },
@@ -1238,6 +1258,7 @@
       "description": "Stops the platform velocity and position controllers and applies a short brake to this platform's wheel motors using the selected board's motor control model. Other motors are not affected. The brake resists motion until a new command is issued; it does not regulate or hold a specific position. Call START_PLATFORM_CONTROLLER again to resume closed-loop platform control.",
       "category": "Platform",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR"
@@ -1518,6 +1539,7 @@
         }
       ],
       "errors": [
+        "BOARD_IDLE",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
@@ -1693,12 +1715,15 @@
       ],
       "category": "Motor position",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
         "INIT_REQUIRED",
         "CONTROLLER_NOT_INITIALIZED",
-        "MOTOR_OWNED"
+        "MOTOR_OWNED",
+        "ENCODER_NOT_INITIALIZED",
+        "SAMPLE_NOT_AVAILABLE"
       ]
     },
     {
@@ -1750,12 +1775,15 @@
       ],
       "category": "Motor position",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
         "INIT_REQUIRED",
         "CONTROLLER_NOT_INITIALIZED",
-        "MOTOR_OWNED"
+        "MOTOR_OWNED",
+        "ENCODER_NOT_INITIALIZED",
+        "SAMPLE_NOT_AVAILABLE"
       ]
     },
     {
@@ -1829,13 +1857,15 @@
       ],
       "category": "Platform position",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
         "INIT_REQUIRED",
         "CONTROLLER_NOT_INITIALIZED",
         "PLATFORM_NOT_INITIALIZED",
-        "ENCODER_NOT_INITIALIZED"
+        "ENCODER_NOT_INITIALIZED",
+        "SAMPLE_NOT_AVAILABLE"
       ]
     },
     {
@@ -1878,6 +1908,7 @@
       ],
       "category": "Platform position",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
@@ -1885,7 +1916,8 @@
         "CONTROLLER_NOT_INITIALIZED",
         "PLATFORM_NOT_INITIALIZED",
         "ODOMETRY_NOT_INITIALIZED",
-        "SAMPLE_NOT_AVAILABLE"
+        "SAMPLE_NOT_AVAILABLE",
+        "ENCODER_NOT_INITIALIZED"
       ]
     },
     {
@@ -1936,12 +1968,15 @@
       ],
       "category": "Motor position",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
         "INIT_REQUIRED",
         "CONTROLLER_NOT_INITIALIZED",
-        "MOTOR_OWNED"
+        "MOTOR_OWNED",
+        "ENCODER_NOT_INITIALIZED",
+        "SAMPLE_NOT_AVAILABLE"
       ]
     },
     {
@@ -2013,13 +2048,15 @@
       ],
       "category": "Platform position",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INTERNAL_ERROR",
         "INIT_REQUIRED",
         "CONTROLLER_NOT_INITIALIZED",
         "PLATFORM_NOT_INITIALIZED",
-        "ENCODER_NOT_INITIALIZED"
+        "ENCODER_NOT_INITIALIZED",
+        "SAMPLE_NOT_AVAILABLE"
       ]
     },
     {
@@ -2051,6 +2088,7 @@
         }
       ],
       "errors": [
+        "BOARD_IDLE",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INIT_REQUIRED",
@@ -2147,6 +2185,7 @@
         }
       ],
       "errors": [
+        "BOARD_IDLE",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INIT_REQUIRED",
@@ -2176,6 +2215,7 @@
       ],
       "category": "Motor",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INIT_REQUIRED",
@@ -2210,6 +2250,7 @@
       ],
       "category": "Motor",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INIT_REQUIRED",
@@ -2257,6 +2298,7 @@
       ],
       "category": "Motor",
       "errors": [
+        "DRIVERS_ASLEEP",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INIT_REQUIRED",
@@ -2323,6 +2365,7 @@
         }
       ],
       "errors": [
+        "BOARD_IDLE",
         "INVALID_LENGTH",
         "INVALID_ARGUMENT",
         "INIT_REQUIRED",
@@ -2360,7 +2403,7 @@
       "code": "0x58",
       "direction": "client_to_controller",
       "category": "Motor",
-      "description": "Stop all motors and motor/platform controllers, then set the board-wide PWM frequency. All motors remain stopped. The setting survives motor initialization and connection changes; reboot restores the board default.",
+      "description": "Stop all motors and motor/platform controllers, then set the board-wide PWM frequency. All motors remain stopped. The setting survives motor initialization and connection changes. At boot the board uses its default unless it restores an explicitly saved v0.4 configuration.",
       "properties": [
         {
           "name": "frequency_hz",
@@ -2382,6 +2425,953 @@
         "direction": "controller_to_client",
         "description": "Applied board-wide PWM frequency in hertz."
       }
+    },
+    {
+      "command": "SAVE_CONFIGURATION",
+      "code": "0x59",
+      "direction": "client_to_controller",
+      "category": "Configuration",
+      "description": "Save the complete running platform setup and motor PWM frequency to onboard FRAM. Available on v0.4 with protocol 2.14 or later. ACK confirms a durable save. A subsequent boot restores the setup with outputs stopped. Protocol 2.23+ also saves the applied physical IMU mount and accepts an explicitly configured mount before platform commissioning.",
+      "properties": [],
+      "errors": [
+        "INVALID_LENGTH",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "PLATFORM_NOT_INITIALIZED",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR"
+      ]
+    },
+    {
+      "command": "GET_CONFIGURATION_FIELD",
+      "code": "0x5A",
+      "direction": "client_to_controller",
+      "category": "Configuration",
+      "description": "Read a running configuration field. Fields 0 through 6 require v0.4. Field 7 is available on all boards with protocol 2.25 and a configured mecanum platform. Field 8 is available on all boards with protocol 2.26 and a configured Omni platform. Use GET_PWM_FREQUENCY for the board-wide switching frequency.",
+      "properties": [
+        {
+          "name": "field",
+          "type": "uint8_t",
+          "description": "0 platform type (0 unconfigured, 1 differential, 2 omni, 3 mecanum), 1 wheel diameter, 2 track or length, 3 width or radius, 4 encoder resolution, 5 encoder reversed, 6 motor reversed, 7 mecanum roller orientation (0 STANDARD, 1 MIRRORED), 8 Omni single-wheel orientation (0 REAR, 1 FRONT)."
+        },
+        {
+          "name": "index",
+          "type": "uint8_t",
+          "description": "Zero for platform fields. For fields 4 through 6, use the zero-based channel index."
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INVALID_ARGUMENT",
+        "PLATFORM_NOT_INITIALIZED"
+      ],
+      "response": {
+        "name": "value",
+        "type": "double",
+        "direction": "controller_to_client",
+        "description": "Current field value in the units of the corresponding initialization command. Boolean flags are returned as zero or one."
+      }
+    },
+    {
+      "command": "SET_DRIVER_SLEEP",
+      "code": "0x5B",
+      "direction": "client_to_controller",
+      "category": "Motor",
+      "description": "Set the board-wide motor inhibit. Entry stops all controllers and blocks new motion. On v0.3 and Nano (protocol 2.17), entry holds each DRV8870 input pair low. Release keeps the inputs low until a fresh drive or explicit short brake. On v0.4 (protocol 2.15+), wake verifies retained settings for initialized drivers and leaves outputs stopped. Failed transitions retain the inhibit for explicit retry. Requires READY and a profile supporting driver sleep.",
+      "properties": [
+        {
+          "name": "sleeping",
+          "type": "uint8_t",
+          "range": [
+            0,
+            1
+          ],
+          "description": "1 to request driver sleep or 0 to wake."
+        }
+      ],
+      "errors": [
+        "DRIVERS_ASLEEP",
+        "BOARD_IDLE",
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR"
+      ]
+    },
+    {
+      "command": "GET_DRIVER_SLEEP",
+      "code": "0x5C",
+      "direction": "client_to_controller",
+      "category": "Motor",
+      "description": "Read the software motor inhibit across connections. It clears at boot. A zero permits commands and does not establish that each chip is awake. Requires READY and driver sleep support (v0.4 since protocol 2.15, original v0.3 and Nano since 2.17).",
+      "properties": [],
+      "errors": [
+        "INVALID_LENGTH",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE"
+      ],
+      "response": {
+        "name": "sleeping",
+        "type": "uint8_t",
+        "direction": "controller_to_client",
+        "description": "1 when driver sleep is requested or 0 when motor commands are permitted."
+      }
+    },
+    {
+      "command": "SET_BOARD_IDLE",
+      "code": "0x5D",
+      "direction": "client_to_controller",
+      "category": "Power",
+      "description": "Set communication-preserving board idle. Entry (1) stops control, inhibits the drivers and permits shallow CPU sleep between tasks. USB traffic, time sync, queries and heartbeat keep using the existing session. Only explicit exit (0) clears idle. Exit preserves a prior independent driver inhibit and leaves outputs stopped. On original v0.3 and Nano both DRV8870 inputs stay low until fresh drive or brake. On v0.4, previously active drivers are verified before release. A failed transition retains idle and inhibit for explicit retry. Requires READY, an idle-capable profile and protocol 2.18 on v0.3 or Nano, or 2.16 on v0.4.",
+      "properties": [
+        {
+          "name": "idle",
+          "type": "uint8_t",
+          "range": [
+            0,
+            1
+          ],
+          "description": "1 to enter board idle or 0 to wake the board."
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR",
+        "BOARD_IDLE"
+      ]
+    },
+    {
+      "command": "GET_BOARD_IDLE",
+      "code": "0x5E",
+      "direction": "client_to_controller",
+      "category": "Power",
+      "description": "Read the shared logical idle request without clearing it. Interrupts can resume the CPU while this request remains set. GET_DRIVER_SLEEP reports the effective driver inhibit. Idle survives reconnect and clears at reset. Requires READY and board idle support (original v0.3 and Nano since protocol 2.18, v0.4 since 2.16).",
+      "properties": [],
+      "errors": [
+        "INVALID_LENGTH",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE"
+      ],
+      "response": {
+        "name": "idle",
+        "type": "uint8_t",
+        "direction": "controller_to_client",
+        "description": "1 while the board idle request is active, otherwise 0."
+      }
+    },
+    {
+      "command": "SET_FUSION_EXPERIMENT",
+      "code": "0x5f",
+      "direction": "client_to_controller",
+      "category": "Fusion experiment",
+      "description": "Configure the volatile v0.4 experiment only while motion is stopped and all commanded targets and motor outputs are zero; initialized controllers with idle zero targets are allowed. Mode 0 retains the legacy encoder path (boot default), 1 uses encoder feedback with the common chassis correction, and 2 uses fused feedback with that same correction. No IMU-only mode. Without a configured physical mount, modes 1/2 require a rigid, level board with component side up, IMU at the chassis reference point, and mounting_yaw_rad as the angle of board +X expressed in chassis XY, counterclockwise about chassis +Z. Sensor-to-board axes are (-x,-y,+z); chassis axes are forward/left/up. Reject nonfinite or out-of-range yaw, any observed configured encoder movement in the preceding 100 ms, or a counter change since a fresh sample. Stopped cold setup may ACK in WAITING; ACK does not establish readiness. Both experimental modes require 100 ms of observed unchanged configured counters for initial rest arming before accepting a motion target; once armed, ordinary target updates remain accepted while moving; fused bias calibration may run within that window. Reconfiguration cancels old targets. Sources may requalify automatically after an ordinary sensor fault, but healthy inputs and a fresh target are required before control resumes. Does not save to FRAM or start motion. Requires READY, exact v0.4.0 fusion capability and protocol 2.19. On protocol 2.23+, a configured physical mount takes precedence over legacy yaw. Use GET_BOARD_MOUNT on 2.24+ for PCB underside-center geometry. On 2.23 use GET_IMU_MOUNT for chip-reference geometry.",
+      "properties": [
+        {
+          "name": "mode",
+          "type": "uint8_t",
+          "description": "FusionMode value.",
+          "range": [
+            0,
+            2
+          ]
+        },
+        {
+          "name": "mounting_yaw_rad",
+          "type": "double",
+          "description": "Legacy board yaw in radians for a centered, level installation. A configured physical mount takes precedence.",
+          "range": [
+            -3.141592653589793,
+            3.141592653589793
+          ]
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR",
+        "BOARD_IDLE",
+        "DRIVERS_ASLEEP",
+        "PLATFORM_NOT_INITIALIZED"
+      ]
+    },
+    {
+      "command": "GET_FUSION_STATUS",
+      "code": "0x60",
+      "direction": "client_to_controller",
+      "category": "Fusion experiment",
+      "description": "Read experiment mode, health, fault, flags and timestamped sample ages without setting targets or changing configuration. A read may enforce an expired feedback deadline, clear the live target and coast. Health/fault/flag values use the FusionHealth/FusionFault/FusionFlag catalogs. Timestamp uses the monotonic board clock; unavailable ages are UINT32_MAX. The physical IMU producer waits 2 ms between passes, without guaranteeing a 2 ms acquisition cadence, and pairs only acquisition windows entirely preceding the encoder timestamp: each window is at most 5 ms wide, worst-case accel/gyro skew at most 15 ms, and age at most 35 ms. These are software acceptance limits, not a physical timing qualification. ESTIMATE_VALID describes the selected experiment estimate, not physical accuracy. Requires READY, exact v0.4.0 fusion capability and protocol 2.19.",
+      "properties": [],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR"
+      ],
+      "response": {
+        "name": "fusion_status",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Packed little-endian diagnostic snapshot."
+      }
+    },
+    {
+      "command": "GET_FUSION_VECTOR",
+      "code": "0x61",
+      "direction": "client_to_controller",
+      "category": "Fusion experiment",
+      "description": "Read one compact experiment vector: 0 encoder pose (relative x,y,yaw), 1 encoder body twist (vx,vy,yaw rate), 2 fused pose, 3 fused body twist, 4 estimated bias (ax,ay,gyro z). Units are metres, seconds and radians. On outage recovery, the last fused-from-encoder world transform is reapplied to the current encoder pose. Returns SAMPLE_NOT_AVAILABLE when the requested estimate is invalid. Match sequence with GET_FUSION_STATUS to associate timestamp/health; different sequences are different snapshots. At most 28 payload bytes so the framed reply fits Arduino Wire32. Does not reset state or start motion. Requires READY, exact v0.4.0 fusion capability and protocol 2.19.",
+      "properties": [
+        {
+          "name": "kind",
+          "type": "uint8_t",
+          "description": "FusionVectorKind value.",
+          "range": [
+            0,
+            4
+          ]
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR",
+        "SAMPLE_NOT_AVAILABLE"
+      ],
+      "response": {
+        "name": "fusion_vector",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Packed little-endian diagnostic snapshot."
+      }
+    },
+    {
+      "command": "GET_FUSION_CONFIGURATION",
+      "code": "0x62",
+      "direction": "client_to_controller",
+      "category": "Fusion experiment",
+      "description": "Read the volatile experiment mode and declared mounting yaw without changing state. Reset selects legacy encoder mode; SAVE_CONFIGURATION does not persist this experiment. Requires READY, exact v0.4.0 fusion capability and protocol 2.19. On protocol 2.23+, a configured physical mount takes precedence over legacy yaw. Use GET_BOARD_MOUNT on 2.24+ for PCB underside-center geometry. On 2.23 use GET_IMU_MOUNT for chip-reference geometry.",
+      "properties": [],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR"
+      ],
+      "response": {
+        "name": "fusion_configuration",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Packed little-endian diagnostic snapshot."
+      }
+    },
+    {
+      "command": "SET_IMU_TRACKING",
+      "code": "0x63",
+      "direction": "client_to_controller",
+      "category": "IMU tracking",
+      "description": "Control volatile IMU-only relative tracking. START=0, RESET=2 and RECALIBRATE=3 are accepted from any state with stationary_mount_confirmed=1 and finite yaw in [-pi,pi]; all discard prior bias and pose and begin full cold stationary calibration at a new relative origin. The caller confirms true zero velocity and the actual rigid installation. Without a configured physical mount, use a level sensor with +Z up at the tracking origin. Legacy yaw is the angle of sensor +X in chassis XY, counterclockwise about chassis +Z. The legacy sensor-to-chassis transform is Rz(yaw)*(x,y,z), axes forward/left/up. IMU stationarity checks cannot establish zero constant velocity. STOP=1 requires confirmation=0 and yaw=0 and stops integration. ACK confirms the action, not a valid estimate. Fault, expiry or interruption requires deliberate restart; no automatic recovery. Not saved to FRAM. Requires READY, exact model 1 hardware 0.4.0 with imu_tracking capability and protocol 2.20+. Independent of platform, encoders and fusion; never commands motion or changes control feedback. On protocol 2.23+, a configured physical mount takes precedence over legacy yaw. Use GET_BOARD_MOUNT on 2.24+ for PCB underside-center geometry. On 2.23 use GET_IMU_MOUNT for chip-reference geometry.",
+      "properties": [
+        {
+          "name": "action",
+          "type": "uint8_t",
+          "description": "ImuTrackingAction value.",
+          "range": [
+            0,
+            3
+          ]
+        },
+        {
+          "name": "stationary_mount_confirmed",
+          "type": "uint8_t",
+          "description": "Explicit caller confirmation of zero velocity and the declared rigid installation, 0 or 1.",
+          "range": [
+            0,
+            1
+          ]
+        },
+        {
+          "name": "mounting_yaw_rad",
+          "type": "double",
+          "description": "Legacy sensor +X yaw about chassis +Z in finite radians for a level sensor. A configured physical mount takes precedence.",
+          "range": [
+            -3.141592653589793,
+            3.141592653589793
+          ]
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR",
+        "BOARD_IDLE",
+        "DRIVERS_ASLEEP"
+      ]
+    },
+    {
+      "command": "GET_IMU_TRACKING_STATUS",
+      "code": "0x64",
+      "direction": "client_to_controller",
+      "category": "IMU tracking",
+      "description": "Read IMU-only tracking state, fault, flags, sequence, last eligible joint sample-watermark timestamp, wall elapsed time since the source origin capped at window_us and separate accel/gyro ages in microseconds. UINT32_MAX age means unavailable. ESTIMATE_VALID is required for usable current estimates; timestamp and health are not physical accuracy guarantees. A delayed in-window source sample may remain readable briefly after the wall clock reaches the source end. Healthy tracking expires upon the first consumed source watermark at or beyond the end, or by the first serviced status/vector/configuration read at or after end + 50000 us. Missing, stale or invalid input may fault earlier. This is a serviced-read guarantee, not a hard real-time scheduling guarantee. Reads never start tracking. Status and vector sequences must match to combine separate reads. Requires READY, exact model 1 hardware 0.4.0 with imu_tracking capability and protocol 2.20+. Independent of platform, encoders and fusion; never commands motion or changes control feedback.",
+      "properties": [],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR"
+      ],
+      "response": {
+        "name": "imu_tracking_status",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Packed little-endian IMU-only tracking snapshot."
+      }
+    },
+    {
+      "command": "GET_IMU_TRACKING_VECTOR",
+      "code": "0x65",
+      "direction": "client_to_controller",
+      "category": "IMU tracking",
+      "description": "Read a compact IMU-only vector selected by kind: POSE=0 (relative metres,metres,radians), TWIST=1 (body metres/second,metres/second,radians/second), BIAS=2 (accel-X,accel-Y metres/second squared and gyro-Z radians/second). SAMPLE_NOT_AVAILABLE means the requested estimate is invalid. Match sequence with GET_IMU_TRACKING_STATUS; never combine mismatched snapshots. Relative integration drifts and has no absolute position or heading reference. Requires READY, exact model 1 hardware 0.4.0 with imu_tracking capability and protocol 2.20+. Independent of platform, encoders and fusion; never commands motion or changes control feedback.",
+      "properties": [
+        {
+          "name": "kind",
+          "type": "uint8_t",
+          "description": "ImuTrackingVectorKind value.",
+          "range": [
+            0,
+            2
+          ]
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR",
+        "SAMPLE_NOT_AVAILABLE"
+      ],
+      "response": {
+        "name": "imu_tracking_vector",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Packed little-endian IMU-only tracking snapshot."
+      }
+    },
+    {
+      "command": "GET_IMU_TRACKING_CONFIGURATION",
+      "code": "0x66",
+      "direction": "client_to_controller",
+      "category": "IMU tracking",
+      "description": "Read mounting yaw and the actual bounded tracking horizon in microseconds. This v0.4 release reports 1000000 us for a one-second motion-onset diagnostic. Always use readback for the connected board horizon. The eligible source interval is [origin, origin + window_us); at 100 Hz it contains 100 source stamps including origin and excluding the end. No estimate at or beyond the source end is published. Reset clears volatile tracking state; reconnect does not start or re-anchor tracking. Requires READY, exact model 1 hardware 0.4.0 with imu_tracking capability and protocol 2.20+. Independent of platform, encoders and fusion; never commands motion or changes control feedback. On protocol 2.23+, a configured physical mount takes precedence over legacy yaw. Use GET_BOARD_MOUNT on 2.24+ for PCB underside-center geometry. On 2.23 use GET_IMU_MOUNT for chip-reference geometry.",
+      "properties": [],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR"
+      ],
+      "response": {
+        "name": "imu_tracking_configuration",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Packed little-endian IMU-only tracking snapshot."
+      }
+    },
+    {
+      "command": "SET_FEEDBACK_SOURCE",
+      "code": "0x67",
+      "direction": "client_to_controller",
+      "category": "Feedback source",
+      "description": "Choose the board-wide telemetry preference. A change requires stopped outputs, disarmed controllers and stationary observed encoders. An unchanged preference is idempotent. The selector never starts motion, wheel odometry, standalone IMU calibration or a controller. FUSED uses an independent passive instance of the release estimator when its explicit mount and encoder odometry are available. It anchors a new relative frame at the first available source sample serviced after a switch or producer restart. The existing SAVE_CONFIGURATION explicitly persists the preference alongside platform setup; cold restore never restores an origin, bias, stationary declaration or motion target. Requires READY and exact model 1 hardware 0.4.0 with feedback_source_selector and protocol 2.21 or newer. Selection only routes tracking telemetry.",
+      "properties": [
+        {
+          "name": "source",
+          "type": "uint8_t",
+          "description": "FeedbackSource value (NONE is read-only).",
+          "range": [
+            0,
+            2
+          ]
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR",
+        "SOURCE_SWITCH_UNSAFE"
+      ]
+    },
+    {
+      "command": "GET_FEEDBACK_SOURCE_STATUS",
+      "code": "0x68",
+      "direction": "client_to_controller",
+      "category": "Feedback source",
+      "description": "Get requested and active source, availability reason and producer detail. Invalid status reports active NONE; no fallback. While valid the sample sequence and monotonic timestamp identify the underlying producer publication. Inspect requested source diagnostics for acquisition ages and fault detail. The standalone IMU is a one-second relative motion-onset diagnostic; fused telemetry uses the existing experimental estimator. Reconnect reads live board state. Requires READY and exact model 1 hardware 0.4.0 with feedback_source_selector and protocol 2.21 or newer. Selection only routes tracking telemetry.",
+      "properties": [],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR"
+      ],
+      "response": {
+        "name": "feedback_source_status",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Packed little-endian selector readback."
+      }
+    },
+    {
+      "command": "GET_FEEDBACK_SOURCE_VECTOR",
+      "code": "0x69",
+      "direction": "client_to_controller",
+      "category": "Feedback source",
+      "description": "Get selector-relative pose (metres, metres, unwrapped radians) or body twist (metres/second, metres/second, radians/second), +X forward, +Y left, yaw CCW. Relative XY is rotated into the heading at the new anchor. First capture a valid status, then request both vectors with its exact origin_id and sequence. Eight distinct recent captures are retained for at most 50000 us after capture. Both keys and the current healthy source/frame must match. Selected historical sample age cannot exceed 50000 us for IMU-only, 60000 us for fused, or three configured encoder periods. Expiry or invalidation immediately rejects cached data. A final live status may naturally advance sequence and time; require the same valid requested/active source and origin, match both vector sequences to the original capture and retry on SAMPLE_NOT_AVAILABLE. Compare origins only within the same boot. Requires READY and exact model 1 hardware 0.4.0 with feedback_source_selector and protocol 2.21 or newer. Selection only routes tracking telemetry.",
+      "properties": [
+        {
+          "name": "kind",
+          "type": "uint8_t",
+          "description": "FeedbackSourceVectorKind value.",
+          "range": [
+            0,
+            1
+          ]
+        },
+        {
+          "name": "origin_id",
+          "type": "uint32_t",
+          "description": "Frame generation captured by GET_FEEDBACK_SOURCE_STATUS."
+        },
+        {
+          "name": "sequence",
+          "type": "uint32_t",
+          "description": "Exact source sample sequence captured by GET_FEEDBACK_SOURCE_STATUS."
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR",
+        "SAMPLE_NOT_AVAILABLE"
+      ],
+      "response": {
+        "name": "feedback_source_vector",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Packed little-endian selector readback."
+      }
+    },
+    {
+      "command": "SET_FEEDBACK_FUSION_MOUNT",
+      "code": "0x6a",
+      "direction": "client_to_controller",
+      "category": "Feedback source",
+      "description": "Declare the legacy centered, level board orientation for passive fused telemetry, with finite board yaw in [-pi,pi]. Requires stopped outputs and disarmed controllers. Each successful command discards prior passive calibration and pose; the observer requires fresh stationary observations. This volatile setting applies only to passive telemetry. Requires READY, exact v0.4 and protocol 2.21+. On protocol 2.23+, a configured physical mount takes precedence over legacy yaw. Use GET_BOARD_MOUNT on 2.24+ for PCB underside-center geometry. On 2.23 use GET_IMU_MOUNT for chip-reference geometry.",
+      "properties": [
+        {
+          "name": "mounting_yaw_rad",
+          "type": "double",
+          "description": "Legacy yaw of board +X in chassis XY, counterclockwise about +Z in radians. Centered and level applies only to a yaw-only installation.",
+          "range": [
+            -3.141592653589793,
+            3.141592653589793
+          ]
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR",
+        "SOURCE_SWITCH_UNSAFE"
+      ]
+    },
+    {
+      "command": "GET_FEEDBACK_FUSION_MOUNT",
+      "code": "0x6b",
+      "direction": "client_to_controller",
+      "category": "Feedback source",
+      "description": "Read the explicit volatile passive fusion mounting confirmation and board yaw. Reset clears confirmation. Requires READY, exact v0.4 and protocol 2.21+. On protocol 2.23+, a configured physical mount takes precedence over legacy yaw. Use GET_BOARD_MOUNT on 2.24+ for PCB underside-center geometry. On 2.23 use GET_IMU_MOUNT for chip-reference geometry.",
+      "properties": [],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR"
+      ],
+      "response": {
+        "name": "feedback_fusion_mount",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Packed little-endian selector readback."
+      }
+    },
+    {
+      "command": "GET_FEEDBACK_SOURCE_HEALTH",
+      "code": "0x6c",
+      "direction": "client_to_controller",
+      "category": "Feedback source",
+      "description": "Read producer health independently of selector and control. ENCODER is the running platform encoder batch, IMU_ONLY is physical BMI088 pair availability independent of the one-second estimate, FUSED is the passive fused estimate. Disagreement indicates conflicting observations without assigning sensor blame. HEALTHY means directly usable data. Comparability is separate. Historical provenance remains readable during failure. Reconnect reads board state. Requires READY, exact v0.4 and protocol 2.22+ with feedback_source_health.",
+      "properties": [
+        {
+          "name": "source",
+          "type": "uint8_t",
+          "description": "FeedbackSource value, excluding NONE.",
+          "range": [
+            0,
+            2
+          ]
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR"
+      ],
+      "response": {
+        "name": "feedback_source_health",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Read producer health independently of selector and control. ENCODER is the running platform encoder batch, IMU_ONLY is physical BMI088 pair availability independent of the one-second estimate, FUSED is the passive fused estimate. Disagreement indicates conflicting observations without assigning sensor blame. HEALTHY means directly usable data. Comparability is separate. Historical provenance remains readable during failure. Reconnect reads board state."
+      }
+    },
+    {
+      "command": "GET_FEEDBACK_IMU_CHANNELS",
+      "code": "0x6d",
+      "direction": "client_to_controller",
+      "category": "Feedback source",
+      "description": "Read independent last observed accelerometer and gyro acquisition times in board uptime microseconds. A timestamp of zero and age UINT32_MAX indicate no observed acquisition. These are physical source observations, independent of the finite IMU-only tracking window. A pair must meet the 35000 us age and 15000 us skew limits. Requires READY, exact v0.4 and protocol 2.22+ with feedback_source_health.",
+      "properties": [],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR"
+      ],
+      "response": {
+        "name": "feedback_imu_channels",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Read independent last observed accelerometer and gyro acquisition times in board uptime microseconds. A timestamp of zero and age UINT32_MAX indicate no observed acquisition. These are physical source observations, independent of the finite IMU-only tracking window. A pair must meet the 35000 us age and 15000 us skew limits."
+      }
+    },
+    {
+      "command": "SET_IMU_MOUNT",
+      "code": "0x6e",
+      "direction": "client_to_controller",
+      "category": "IMU mounting",
+      "description": "Legacy chip-reference API, deprecated for new installations. Set the complete rigid mount for IMU-only and fused tracking on a stopped, disarmed v0.4. The board-to-chassis rotation is Rz(yaw) Ry(pitch) Rx(roll). A changed mount requires fresh tracking initialization. SAVE_CONFIGURATION persists this geometry. Requires READY and protocol 2.23+ with imu_mounting. XYZ refers to the BMI088 chip. Use SET_BOARD_MOUNT for the PCB underside center.",
+      "properties": [
+        {
+          "name": "roll_cdeg",
+          "type": "int16_t",
+          "description": "Board-to-chassis roll in signed hundredths of a degree.",
+          "range": [
+            -18000,
+            18000
+          ]
+        },
+        {
+          "name": "pitch_cdeg",
+          "type": "int16_t",
+          "description": "Board-to-chassis pitch in signed hundredths of a degree.",
+          "range": [
+            -9000,
+            9000
+          ]
+        },
+        {
+          "name": "yaw_cdeg",
+          "type": "int16_t",
+          "description": "Board-to-chassis yaw in signed hundredths of a degree.",
+          "range": [
+            -18000,
+            18000
+          ]
+        },
+        {
+          "name": "x_um",
+          "type": "int32_t",
+          "description": "Signed displacement from the tracking origin to the BMI088 chip along chassis +X (forward), in micrometres.",
+          "range": [
+            -10000000,
+            10000000
+          ]
+        },
+        {
+          "name": "y_um",
+          "type": "int32_t",
+          "description": "Signed displacement from the tracking origin to the BMI088 chip along chassis +Y (left), in micrometres.",
+          "range": [
+            -10000000,
+            10000000
+          ]
+        },
+        {
+          "name": "z_um",
+          "type": "int32_t",
+          "description": "Signed displacement from the tracking origin to the BMI088 chip along chassis +Z (up), in micrometres.",
+          "range": [
+            -10000000,
+            10000000
+          ]
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR",
+        "SOURCE_SWITCH_UNSAFE"
+      ]
+    },
+    {
+      "command": "GET_IMU_MOUNT",
+      "code": "0x6f",
+      "direction": "client_to_controller",
+      "category": "IMU mounting",
+      "description": "Legacy chip-reference API, deprecated for new installations. Read the shared physical mount. When configured is false, IMU-only uses its legacy sensor yaw and fusion its legacy board yaw. Requires READY and protocol 2.23+ with imu_mounting. XYZ is the BMI088 chip position, including when derived from a PCB underside-center installation.",
+      "properties": [],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR"
+      ],
+      "response": {
+        "name": "imu_mount_configuration",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Applied board-to-chassis geometry and configuration state."
+      }
+    },
+    {
+      "command": "SET_BOARD_MOUNT",
+      "code": "0x85",
+      "direction": "client_to_controller",
+      "category": "IMU mounting",
+      "description": "Set the rigid mount on a stopped, disarmed Mini. XYZ is the displacement in chassis axes from the tracking origin to the geometric center of the PCB underside. Board-to-chassis rotation is Rz(yaw) Ry(pitch) Rx(roll). Firmware derives the chip offset. SAVE_CONFIGURATION persists the entered board pose. Requires READY, exact v0.4 imu_mounting and protocol 2.24+.",
+      "properties": [
+        {
+          "name": "roll_cdeg",
+          "type": "int16_t",
+          "description": "Board-to-chassis roll in signed hundredths of a degree.",
+          "range": [
+            -18000,
+            18000
+          ]
+        },
+        {
+          "name": "pitch_cdeg",
+          "type": "int16_t",
+          "description": "Board-to-chassis pitch in signed hundredths of a degree.",
+          "range": [
+            -9000,
+            9000
+          ]
+        },
+        {
+          "name": "yaw_cdeg",
+          "type": "int16_t",
+          "description": "Board-to-chassis yaw in signed hundredths of a degree.",
+          "range": [
+            -18000,
+            18000
+          ]
+        },
+        {
+          "name": "x_um",
+          "type": "int32_t",
+          "description": "Signed displacement from the tracking origin to the geometric center of the PCB underside along chassis +X (forward), in micrometres.",
+          "range": [
+            -10000000,
+            10000000
+          ]
+        },
+        {
+          "name": "y_um",
+          "type": "int32_t",
+          "description": "Signed displacement from the tracking origin to the geometric center of the PCB underside along chassis +Y (left), in micrometres.",
+          "range": [
+            -10000000,
+            10000000
+          ]
+        },
+        {
+          "name": "z_um",
+          "type": "int32_t",
+          "description": "Signed displacement from the tracking origin to the geometric center of the PCB underside along chassis +Z (up), in micrometres.",
+          "range": [
+            -10000000,
+            10000000
+          ]
+        }
+      ],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR",
+        "SOURCE_SWITCH_UNSAFE"
+      ]
+    },
+    {
+      "command": "GET_BOARD_MOUNT",
+      "code": "0x86",
+      "direction": "client_to_controller",
+      "category": "IMU mounting",
+      "description": "Read the applied board orientation and geometric PCB underside center in chassis coordinates. Legacy chip mounts are converted. When unconfigured all coordinates and angles are zero. Requires READY, exact v0.4 imu_mounting and protocol 2.24+.",
+      "properties": [],
+      "errors": [
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY",
+        "SENSOR_NOT_AVAILABLE",
+        "INTERNAL_ERROR"
+      ],
+      "response": {
+        "name": "board_mount_configuration",
+        "type": "object",
+        "direction": "controller_to_client",
+        "description": "Applied orientation and chassis-to-PCB underside-center displacement."
+      }
+    },
+    {
+      "command": "INITIALIZE_MECANUM_PLATFORM_ORIENTED",
+      "code": "0x87",
+      "direction": "client_to_controller",
+      "description": "Initialize four mecanum wheels with an explicit 45-degree roller layout. Requires protocol 2.25 and a READY session. Motor/encoder indices 0, 1, 2, 3 are front right, rear right, rear left, front left. Length and width are positive front-to-rear and side-to-side wheel-center spacings in meters. STANDARD uses yaw lever (width + length)/2. MIRRORED uses (width - length)/2 and requires unequal spacings. Invalid orientation or geometry leaves the running setup unchanged.",
+      "properties": [
+        {
+          "name": "is_reversed_0",
+          "type": "bool",
+          "default": false,
+          "description": "Determines if motor 0 is reversed."
+        },
+        {
+          "name": "is_reversed_1",
+          "type": "bool",
+          "default": false,
+          "description": "Determines if motor 1 is reversed."
+        },
+        {
+          "name": "is_reversed_2",
+          "type": "bool",
+          "default": false,
+          "description": "Determines if motor 2 is reversed."
+        },
+        {
+          "name": "is_reversed_3",
+          "type": "bool",
+          "default": false,
+          "description": "Determines if motor 3 is reversed."
+        },
+        {
+          "name": "is_encoder_reversed_0",
+          "type": "bool",
+          "default": false,
+          "description": "Reverses encoder 0 counting direction, independently of motor 0's is_reversed_0. Set so the closed-loop feedback is negative (flip if the wheel runs away when given a target speed)."
+        },
+        {
+          "name": "is_encoder_reversed_1",
+          "type": "bool",
+          "default": false,
+          "description": "Reverses encoder 1 counting direction, independently of motor 1's is_reversed_1. Set so the closed-loop feedback is negative (flip if the wheel runs away when given a target speed)."
+        },
+        {
+          "name": "is_encoder_reversed_2",
+          "type": "bool",
+          "default": false,
+          "description": "Reverses encoder 2 counting direction, independently of motor 2's is_reversed_2. Set so the closed-loop feedback is negative (flip if the wheel runs away when given a target speed)."
+        },
+        {
+          "name": "is_encoder_reversed_3",
+          "type": "bool",
+          "default": false,
+          "description": "Reverses encoder 3 counting direction, independently of motor 3's is_reversed_3. Set so the closed-loop feedback is negative (flip if the wheel runs away when given a target speed)."
+        },
+        {
+          "name": "length",
+          "type": "double",
+          "default": 1,
+          "description": "Length of the platform in meters."
+        },
+        {
+          "name": "width",
+          "type": "double",
+          "default": 1,
+          "description": "Width of the platform in meters."
+        },
+        {
+          "name": "wheels_diameter",
+          "type": "double",
+          "default": 1,
+          "description": "Diameter of the robot wheels in meters."
+        },
+        {
+          "name": "encoder_resolution",
+          "type": "double",
+          "default": 0,
+          "description": "Encoder resolution in ticks per revolution. The value can not be negative. If platform does not have encoders, the value should be set to zero."
+        },
+        {
+          "name": "roller_orientation",
+          "type": "uint8_t",
+          "range": [
+            0,
+            1
+          ],
+          "default": 0,
+          "description": "0 STANDARD (legacy), 1 MIRRORED (all four roller slopes reversed). Independent of each motor and encoder reversal."
+        }
+      ],
+      "category": "Platform",
+      "errors": [
+        "DRIVERS_ASLEEP",
+        "BOARD_IDLE",
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY"
+      ]
+    },
+    {
+      "command": "INITIALIZE_OMNI_PLATFORM_ORIENTED",
+      "code": "0x88",
+      "direction": "client_to_controller",
+      "description": "Initialize a 120-degree, three-wheel Omni platform in the marked chassis frame (+X forward, +Y left, positive yaw counterclockwise). Requires READY and protocol 2.26. REAR places W0 front right, W1 front left and W2 rear. FRONT rotates the complete triangle 180 degrees: W0 rear left, W1 rear right and W2 front. Motor and encoder indices stay attached to those wheels, with independent reversal flags. Dimensions must be positive and encoder resolution nonnegative. Invalid requests leave the running setup unchanged.",
+      "properties": [
+        {
+          "name": "is_reversed_0",
+          "type": "bool",
+          "default": false,
+          "description": "Determines if motor 0 is reversed."
+        },
+        {
+          "name": "is_reversed_1",
+          "type": "bool",
+          "default": false,
+          "description": "Determines if motor 1 is reversed."
+        },
+        {
+          "name": "is_reversed_2",
+          "type": "bool",
+          "default": false,
+          "description": "Determines if motor 2 is reversed."
+        },
+        {
+          "name": "is_encoder_reversed_0",
+          "type": "bool",
+          "default": false,
+          "description": "Reverses encoder 0 counting direction, independently of motor 0's is_reversed_0. Set so the closed-loop feedback is negative (flip if the wheel runs away when given a target speed)."
+        },
+        {
+          "name": "is_encoder_reversed_1",
+          "type": "bool",
+          "default": false,
+          "description": "Reverses encoder 1 counting direction, independently of motor 1's is_reversed_1. Set so the closed-loop feedback is negative (flip if the wheel runs away when given a target speed)."
+        },
+        {
+          "name": "is_encoder_reversed_2",
+          "type": "bool",
+          "default": false,
+          "description": "Reverses encoder 2 counting direction, independently of motor 2's is_reversed_2. Set so the closed-loop feedback is negative (flip if the wheel runs away when given a target speed)."
+        },
+        {
+          "name": "wheels_diameter",
+          "type": "double",
+          "default": 1,
+          "description": "Diameter of the robot wheels in meters."
+        },
+        {
+          "name": "robot_radius",
+          "type": "double",
+          "default": 1,
+          "description": "Distance from the robot center to each wheel center in meters."
+        },
+        {
+          "name": "encoder_resolution",
+          "type": "double",
+          "default": 0,
+          "description": "Encoder resolution in ticks per revolution. The value can not be negative. If platform does not have encoders, the value should be set to zero."
+        },
+        {
+          "name": "wheel_orientation",
+          "type": "uint8_t",
+          "range": [
+            0,
+            1
+          ],
+          "default": 0,
+          "description": "Position of single wheel W2: REAR (0) or FRONT (1)."
+        }
+      ],
+      "category": "Platform",
+      "errors": [
+        "DRIVERS_ASLEEP",
+        "INVALID_LENGTH",
+        "INVALID_ARGUMENT",
+        "INTERNAL_ERROR",
+        "INIT_REQUIRED",
+        "CLOCK_NOT_READY"
+      ]
     }
   ],
   "objects": [
@@ -2913,6 +3903,497 @@
           "description": "Nominal threshold in milliamps."
         }
       ]
+    },
+    {
+      "name": "fusion_status",
+      "description": "Volatile v0.4 fusion experiment diagnostics; see command descriptions.",
+      "properties": [
+        {
+          "name": "mode",
+          "type": "uint8_t",
+          "description": "Selected fusion_modes value."
+        },
+        {
+          "name": "health",
+          "type": "uint8_t",
+          "description": "Current fusion_health value."
+        },
+        {
+          "name": "fault",
+          "type": "uint8_t",
+          "description": "Current fusion_faults reason, or NONE."
+        },
+        {
+          "name": "flags",
+          "type": "uint8_t",
+          "description": "Bitmask of fusion_flags; ESTIMATE_VALID is required before using estimates."
+        },
+        {
+          "name": "sequence",
+          "type": "uint32_t",
+          "description": "Snapshot sequence; compare with each vector before associating this status."
+        },
+        {
+          "name": "timestamp_us",
+          "type": "uint64_t",
+          "description": "Monotonic board microseconds of this estimate snapshot; not wall time."
+        },
+        {
+          "name": "accel_age_us",
+          "type": "uint32_t",
+          "description": "UINT32_MAX means unavailable."
+        },
+        {
+          "name": "gyro_age_us",
+          "type": "uint32_t",
+          "description": "UINT32_MAX means unavailable."
+        },
+        {
+          "name": "encoder_age_us",
+          "type": "uint32_t",
+          "description": "UINT32_MAX means unavailable."
+        }
+      ]
+    },
+    {
+      "name": "fusion_vector",
+      "description": "Volatile v0.4 fusion experiment diagnostics; see command descriptions.",
+      "properties": [
+        {
+          "name": "sequence",
+          "type": "uint32_t",
+          "description": "Match GET_FUSION_STATUS sequence before associating its timestamp or health."
+        },
+        {
+          "name": "x",
+          "type": "double",
+          "description": "Pose X in metres, twist X in metres per second, or X accelerometer bias in metres per second squared, selected by kind."
+        },
+        {
+          "name": "y",
+          "type": "double",
+          "description": "Pose Y in metres, twist Y in metres per second, or Y accelerometer bias in metres per second squared, selected by kind."
+        },
+        {
+          "name": "z",
+          "type": "double",
+          "description": "Pose yaw in radians, twist yaw rate in radians per second, or Z gyro bias in radians per second, selected by kind."
+        }
+      ]
+    },
+    {
+      "name": "fusion_configuration",
+      "description": "Volatile v0.4 fusion experiment diagnostics; see command descriptions.",
+      "properties": [
+        {
+          "name": "mode",
+          "type": "uint8_t",
+          "description": "Selected fusion_modes value; boot default is LEGACY_ENCODER."
+        },
+        {
+          "name": "mounting_yaw_rad",
+          "type": "double",
+          "description": "Angle of board +X in the chassis XY plane, counterclockwise about chassis +Z; finite radians in [-pi, pi]."
+        }
+      ]
+    },
+    {
+      "name": "imu_tracking_status",
+      "description": "Volatile IMU-only relative tracking diagnostics.",
+      "properties": [
+        {
+          "name": "state",
+          "type": "uint8_t",
+          "description": "ImuTrackingState value."
+        },
+        {
+          "name": "fault",
+          "type": "uint8_t",
+          "description": "ImuTrackingFault value."
+        },
+        {
+          "name": "flags",
+          "type": "uint8_t",
+          "description": "ImuTrackingFlag bitmask."
+        },
+        {
+          "name": "reserved",
+          "type": "uint8_t",
+          "description": "Reserved; must be zero."
+        },
+        {
+          "name": "sequence",
+          "type": "uint32_t",
+          "description": "Snapshot sequence; match vector reads."
+        },
+        {
+          "name": "timestamp_us",
+          "type": "uint64_t",
+          "description": "Last eligible monotonic joint accel/gyro source watermark; no published watermark reaches origin + window_us. Zero before the first estimate."
+        },
+        {
+          "name": "elapsed_us",
+          "type": "uint32_t",
+          "description": "Wall elapsed microseconds since the source origin, capped at window_us; distinct from the retained source watermark. Frozen on fault or expiry; STOP clears it."
+        },
+        {
+          "name": "accel_age_us",
+          "type": "uint32_t",
+          "description": "Accel age in microseconds; UINT32_MAX if unavailable."
+        },
+        {
+          "name": "gyro_age_us",
+          "type": "uint32_t",
+          "description": "Gyro age in microseconds; UINT32_MAX if unavailable."
+        }
+      ]
+    },
+    {
+      "name": "imu_tracking_vector",
+      "description": "Volatile IMU-only relative tracking diagnostics.",
+      "properties": [
+        {
+          "name": "sequence",
+          "type": "uint32_t",
+          "description": "Match status sequence before associating health and time."
+        },
+        {
+          "name": "x",
+          "type": "double",
+          "description": "Pose X, body velocity X, or acceleration bias X, selected by kind."
+        },
+        {
+          "name": "y",
+          "type": "double",
+          "description": "Pose Y, body velocity Y, or acceleration bias Y, selected by kind."
+        },
+        {
+          "name": "z",
+          "type": "double",
+          "description": "Pose yaw, body yaw rate, or gyro Z bias, selected by kind."
+        }
+      ]
+    },
+    {
+      "name": "imu_tracking_configuration",
+      "description": "Volatile IMU-only relative tracking diagnostics.",
+      "properties": [
+        {
+          "name": "mounting_yaw_rad",
+          "type": "double",
+          "description": "Declared supported mounting yaw in radians."
+        },
+        {
+          "name": "window_us",
+          "type": "uint32_t",
+          "description": "Actual source tracking horizon in microseconds; 1000000 for this v0.4 release. Eligible source times are [origin, origin + window_us)."
+        }
+      ]
+    },
+    {
+      "name": "feedback_source_status",
+      "description": "Board-wide selected tracking telemetry status.",
+      "properties": [
+        {
+          "name": "requested",
+          "type": "uint8_t",
+          "description": "Requested FeedbackSource."
+        },
+        {
+          "name": "active",
+          "type": "uint8_t",
+          "description": "Active FeedbackSource, NONE while invalid."
+        },
+        {
+          "name": "valid",
+          "type": "uint8_t",
+          "description": "One when a current source snapshot is available, otherwise zero."
+        },
+        {
+          "name": "reason",
+          "type": "uint8_t",
+          "description": "FeedbackSourceReason."
+        },
+        {
+          "name": "sequence",
+          "type": "uint32_t",
+          "description": "Underlying sample sequence when valid; zero when invalid."
+        },
+        {
+          "name": "timestamp_us",
+          "type": "uint64_t",
+          "description": "Underlying monotonic board sample time; zero when invalid."
+        },
+        {
+          "name": "origin_id",
+          "type": "uint32_t",
+          "description": "Board-local frame generation. Discard prior coordinates on change or board reboot."
+        },
+        {
+          "name": "source_detail",
+          "type": "uint8_t",
+          "description": "Native IMU tracking or fusion fault code for the requested source; zero otherwise."
+        },
+        {
+          "name": "age_us",
+          "type": "uint32_t",
+          "description": "Board-clock sample age in microseconds; UINT32_MAX when unavailable."
+        },
+        {
+          "name": "max_age_ms",
+          "type": "uint16_t",
+          "description": "Maximum eligible captured sample age in milliseconds for this source, including the configured encoder period. Compare updated original sample age with the smaller of its captured and current limits."
+        }
+      ]
+    },
+    {
+      "name": "feedback_source_vector",
+      "description": "Selected source vector in the selector pose frame or native body twist frame.",
+      "properties": [
+        {
+          "name": "sequence",
+          "type": "uint32_t",
+          "description": "Exact producer sequence captured by status and requested by the vector command."
+        },
+        {
+          "name": "x",
+          "type": "double",
+          "description": "X coordinate or body X velocity."
+        },
+        {
+          "name": "y",
+          "type": "double",
+          "description": "Y coordinate or body Y velocity."
+        },
+        {
+          "name": "z",
+          "type": "double",
+          "description": "Continuous relative yaw or body yaw rate."
+        }
+      ]
+    },
+    {
+      "name": "feedback_fusion_mount",
+      "description": "Passive tracking mount, independent of chassis control.",
+      "properties": [
+        {
+          "name": "confirmed",
+          "type": "uint8_t",
+          "description": "One after an explicit mount declaration this boot."
+        },
+        {
+          "name": "mounting_yaw_rad",
+          "type": "double",
+          "description": "Angle of board +X in chassis XY, counterclockwise about +Z in radians. A centered, level board with +Z up is required only for a yaw-only installation."
+        }
+      ]
+    },
+    {
+      "name": "feedback_source_health",
+      "description": "Read producer health independently of selector and control. ENCODER is the running platform encoder batch, IMU_ONLY is physical BMI088 pair availability independent of the one-second estimate, FUSED is the passive fused estimate. Disagreement indicates conflicting observations without assigning sensor blame. HEALTHY means directly usable data. Comparability is separate. Historical provenance remains readable during failure. Reconnect reads board state.",
+      "properties": [
+        {
+          "name": "source",
+          "type": "uint8_t",
+          "description": "Echo of FeedbackSource request."
+        },
+        {
+          "name": "health",
+          "type": "uint8_t",
+          "description": "FeedbackSourceHealthState."
+        },
+        {
+          "name": "reason",
+          "type": "uint8_t",
+          "description": "FeedbackSourceReason for current producer availability."
+        },
+        {
+          "name": "detail",
+          "type": "uint8_t",
+          "description": "FusionFault explanation if present."
+        },
+        {
+          "name": "flags",
+          "type": "uint32_t",
+          "description": "FeedbackSourceHealthFlag bit mask."
+        },
+        {
+          "name": "sequence",
+          "type": "uint32_t",
+          "description": "Sequence of the last producer publication or observed distinct raw IMU pair, wrapping modulo 2^32; use PROVENANCE for presence."
+        },
+        {
+          "name": "timestamp_us",
+          "type": "uint64_t",
+          "description": "Last usable source time in board uptime microseconds. For the BMI088 pair this is its older die timestamp."
+        },
+        {
+          "name": "age_us",
+          "type": "uint32_t",
+          "description": "Age of that timestamp in board uptime microseconds, UINT32_MAX if absent, future or too old to represent."
+        },
+        {
+          "name": "max_age_us",
+          "type": "uint32_t",
+          "description": "Source freshness budget in microseconds."
+        }
+      ]
+    },
+    {
+      "name": "feedback_imu_channels",
+      "description": "Read independent last observed accelerometer and gyro acquisition times in board uptime microseconds. A timestamp of zero and age UINT32_MAX indicate no observed acquisition. These are physical source observations, independent of the finite IMU-only tracking window. A pair must meet the 35000 us age and 15000 us skew limits.",
+      "properties": [
+        {
+          "name": "accel_timestamp_us",
+          "type": "uint64_t",
+          "description": "Last observed accelerometer acquisition time in board uptime microseconds."
+        },
+        {
+          "name": "gyro_timestamp_us",
+          "type": "uint64_t",
+          "description": "Last observed gyro acquisition time in board uptime microseconds."
+        },
+        {
+          "name": "accel_age_us",
+          "type": "uint32_t",
+          "description": "Board-derived acquisition age in microseconds, UINT32_MAX if unknown."
+        },
+        {
+          "name": "gyro_age_us",
+          "type": "uint32_t",
+          "description": "Board-derived acquisition age in microseconds, UINT32_MAX if unknown."
+        }
+      ]
+    },
+    {
+      "name": "imu_mount_configuration",
+      "description": "Signed board orientation and displacement to the chip in chassis axes.",
+      "properties": [
+        {
+          "name": "roll_cdeg",
+          "type": "int16_t",
+          "description": "Board-to-chassis roll in signed hundredths of a degree.",
+          "range": [
+            -18000,
+            18000
+          ]
+        },
+        {
+          "name": "pitch_cdeg",
+          "type": "int16_t",
+          "description": "Board-to-chassis pitch in signed hundredths of a degree.",
+          "range": [
+            -9000,
+            9000
+          ]
+        },
+        {
+          "name": "yaw_cdeg",
+          "type": "int16_t",
+          "description": "Board-to-chassis yaw in signed hundredths of a degree.",
+          "range": [
+            -18000,
+            18000
+          ]
+        },
+        {
+          "name": "x_um",
+          "type": "int32_t",
+          "description": "Signed displacement from the tracking origin to the BMI088 chip along chassis +X (forward), in micrometres. A position derived from the other reference can exceed its setter's 10 m input range.",
+          "range": [
+            -10031098,
+            10031098
+          ]
+        },
+        {
+          "name": "y_um",
+          "type": "int32_t",
+          "description": "Signed displacement from the tracking origin to the BMI088 chip along chassis +Y (left), in micrometres. A position derived from the other reference can exceed its setter's 10 m input range.",
+          "range": [
+            -10031098,
+            10031098
+          ]
+        },
+        {
+          "name": "z_um",
+          "type": "int32_t",
+          "description": "Signed displacement from the tracking origin to the BMI088 chip along chassis +Z (up), in micrometres. A position derived from the other reference can exceed its setter's 10 m input range.",
+          "range": [
+            -10031098,
+            10031098
+          ]
+        },
+        {
+          "name": "configured",
+          "type": "bool",
+          "description": "True after explicit mount setup or restore. False selects legacy per-mode yaw."
+        }
+      ]
+    },
+    {
+      "name": "board_mount_configuration",
+      "description": "Applied orientation and chassis-to-PCB underside-center displacement.",
+      "properties": [
+        {
+          "name": "roll_cdeg",
+          "type": "int16_t",
+          "description": "Board-to-chassis roll in signed hundredths of a degree.",
+          "range": [
+            -18000,
+            18000
+          ]
+        },
+        {
+          "name": "pitch_cdeg",
+          "type": "int16_t",
+          "description": "Board-to-chassis pitch in signed hundredths of a degree.",
+          "range": [
+            -9000,
+            9000
+          ]
+        },
+        {
+          "name": "yaw_cdeg",
+          "type": "int16_t",
+          "description": "Board-to-chassis yaw in signed hundredths of a degree.",
+          "range": [
+            -18000,
+            18000
+          ]
+        },
+        {
+          "name": "x_um",
+          "type": "int32_t",
+          "description": "Signed displacement from the tracking origin to the geometric center of the PCB underside along chassis +X (forward), in micrometres. A position derived from the other reference can exceed its setter's 10 m input range.",
+          "range": [
+            -10031098,
+            10031098
+          ]
+        },
+        {
+          "name": "y_um",
+          "type": "int32_t",
+          "description": "Signed displacement from the tracking origin to the geometric center of the PCB underside along chassis +Y (left), in micrometres. A position derived from the other reference can exceed its setter's 10 m input range.",
+          "range": [
+            -10031098,
+            10031098
+          ]
+        },
+        {
+          "name": "z_um",
+          "type": "int32_t",
+          "description": "Signed displacement from the tracking origin to the geometric center of the PCB underside along chassis +Z (up), in micrometres. A position derived from the other reference can exceed its setter's 10 m input range.",
+          "range": [
+            -10031098,
+            10031098
+          ]
+        },
+        {
+          "name": "configured",
+          "type": "bool",
+          "description": "True after explicit mount setup or restore. False selects legacy per-mode yaw."
+        }
+      ]
     }
   ],
   "header": {
@@ -3022,6 +4503,21 @@
       "code": 18,
       "name": "SAMPLE_OUT_OF_RANGE",
       "description": "The sensor reading is saturated; no valid measurement can be returned."
+    },
+    {
+      "code": 19,
+      "name": "DRIVERS_ASLEEP",
+      "description": "Driver sleep is active. Explicitly wake the drivers before requesting this operation."
+    },
+    {
+      "code": 20,
+      "name": "BOARD_IDLE",
+      "description": "Board idle is active. Explicitly wake the board before changing driver sleep or starting a subscription."
+    },
+    {
+      "code": 21,
+      "name": "SOURCE_SWITCH_UNSAFE",
+      "description": "Stop all motor outputs, disarm all controllers and wait for stationary wheel observations before changing the tracking preference."
     }
   ],
   "topics": [
@@ -3135,6 +4631,430 @@
       "id": 100000,
       "name": "KHZ_100",
       "description": "100 kHz"
+    }
+  ],
+  "fusion_modes": [
+    {
+      "id": 0,
+      "name": "LEGACY_ENCODER"
+    },
+    {
+      "id": 1,
+      "name": "ENCODER_CORRECTION"
+    },
+    {
+      "id": 2,
+      "name": "FUSED"
+    }
+  ],
+  "fusion_health": [
+    {
+      "id": 0,
+      "name": "DISABLED"
+    },
+    {
+      "id": 1,
+      "name": "WAITING"
+    },
+    {
+      "id": 2,
+      "name": "HEALTHY"
+    },
+    {
+      "id": 3,
+      "name": "FAULT"
+    }
+  ],
+  "fusion_faults": [
+    {
+      "id": 0,
+      "name": "NONE"
+    },
+    {
+      "id": 1,
+      "name": "MOUNT_INVALID"
+    },
+    {
+      "id": 2,
+      "name": "ENCODER_UNAVAILABLE"
+    },
+    {
+      "id": 3,
+      "name": "IMU_UNAVAILABLE"
+    },
+    {
+      "id": 4,
+      "name": "STALE"
+    },
+    {
+      "id": 5,
+      "name": "TIMESTAMP"
+    },
+    {
+      "id": 6,
+      "name": "SATURATION"
+    },
+    {
+      "id": 7,
+      "name": "BIAS_NOT_READY"
+    },
+    {
+      "id": 8,
+      "name": "DISCONTINUITY"
+    },
+    {
+      "id": 9,
+      "name": "INHIBITED"
+    }
+  ],
+  "fusion_flags": [
+    {
+      "id": 1,
+      "name": "ESTIMATE_VALID"
+    },
+    {
+      "id": 2,
+      "name": "BIAS_READY"
+    },
+    {
+      "id": 4,
+      "name": "FRESH_TARGET_REQUIRED"
+    },
+    {
+      "id": 8,
+      "name": "CORRECTION_ACTIVE"
+    }
+  ],
+  "fusion_vectors": [
+    {
+      "id": 0,
+      "name": "ENCODER_POSE"
+    },
+    {
+      "id": 1,
+      "name": "ENCODER_TWIST"
+    },
+    {
+      "id": 2,
+      "name": "FUSED_POSE"
+    },
+    {
+      "id": 3,
+      "name": "FUSED_TWIST"
+    },
+    {
+      "id": 4,
+      "name": "BIAS"
+    }
+  ],
+  "imu_tracking_actions": [
+    {
+      "id": 0,
+      "name": "START",
+      "description": "Start"
+    },
+    {
+      "id": 1,
+      "name": "STOP",
+      "description": "Stop"
+    },
+    {
+      "id": 2,
+      "name": "RESET",
+      "description": "Reset"
+    },
+    {
+      "id": 3,
+      "name": "RECALIBRATE",
+      "description": "Recalibrate"
+    }
+  ],
+  "imu_tracking_states": [
+    {
+      "id": 0,
+      "name": "STOPPED",
+      "description": "Stopped"
+    },
+    {
+      "id": 1,
+      "name": "CALIBRATING",
+      "description": "Calibrating"
+    },
+    {
+      "id": 2,
+      "name": "TRACKING",
+      "description": "Tracking"
+    },
+    {
+      "id": 3,
+      "name": "FAULT",
+      "description": "Fault"
+    },
+    {
+      "id": 4,
+      "name": "EXPIRED",
+      "description": "Expired"
+    }
+  ],
+  "imu_tracking_faults": [
+    {
+      "id": 0,
+      "name": "NONE",
+      "description": "None"
+    },
+    {
+      "id": 1,
+      "name": "NOT_STATIONARY",
+      "description": "Not stationary"
+    },
+    {
+      "id": 2,
+      "name": "IMU_UNAVAILABLE",
+      "description": "Imu unavailable"
+    },
+    {
+      "id": 3,
+      "name": "STALE",
+      "description": "Stale"
+    },
+    {
+      "id": 4,
+      "name": "TIMESTAMP",
+      "description": "Timestamp"
+    },
+    {
+      "id": 5,
+      "name": "SATURATION",
+      "description": "Saturation"
+    },
+    {
+      "id": 6,
+      "name": "BIAS_NOT_READY",
+      "description": "Bias not ready"
+    },
+    {
+      "id": 7,
+      "name": "WINDOW_EXPIRED",
+      "description": "Window expired"
+    },
+    {
+      "id": 8,
+      "name": "INHIBITED",
+      "description": "Inhibited"
+    },
+    {
+      "id": 9,
+      "name": "MOUNT_INVALID",
+      "description": "Mount invalid"
+    }
+  ],
+  "imu_tracking_flags": [
+    {
+      "id": 1,
+      "name": "ESTIMATE_VALID",
+      "description": "Estimate valid"
+    },
+    {
+      "id": 2,
+      "name": "BIAS_READY",
+      "description": "Bias ready"
+    },
+    {
+      "id": 4,
+      "name": "RESTART_REQUIRED",
+      "description": "Restart required"
+    },
+    {
+      "id": 8,
+      "name": "MOUNT_CONFIRMED",
+      "description": "The operator confirmed rest and the rigid installation for this diagnostic episode."
+    }
+  ],
+  "imu_tracking_vectors": [
+    {
+      "id": 0,
+      "name": "POSE",
+      "description": "Pose"
+    },
+    {
+      "id": 1,
+      "name": "TWIST",
+      "description": "Twist"
+    },
+    {
+      "id": 2,
+      "name": "BIAS",
+      "description": "Bias"
+    }
+  ],
+  "feedback_sources": [
+    {
+      "id": 0,
+      "name": "ENCODER",
+      "description": "Encoder"
+    },
+    {
+      "id": 1,
+      "name": "IMU_ONLY",
+      "description": "Imu only"
+    },
+    {
+      "id": 2,
+      "name": "FUSED",
+      "description": "Fused"
+    },
+    {
+      "id": 255,
+      "name": "NONE",
+      "description": "None"
+    }
+  ],
+  "feedback_source_reasons": [
+    {
+      "id": 0,
+      "name": "OK",
+      "description": "Ok"
+    },
+    {
+      "id": 1,
+      "name": "NOT_STARTED",
+      "description": "Not started"
+    },
+    {
+      "id": 2,
+      "name": "CALIBRATING",
+      "description": "Calibrating"
+    },
+    {
+      "id": 3,
+      "name": "UNAVAILABLE",
+      "description": "Unavailable"
+    },
+    {
+      "id": 4,
+      "name": "STALE",
+      "description": "Stale"
+    },
+    {
+      "id": 5,
+      "name": "EXPIRED",
+      "description": "Expired"
+    },
+    {
+      "id": 6,
+      "name": "FAULT",
+      "description": "Fault"
+    },
+    {
+      "id": 7,
+      "name": "INHIBITED",
+      "description": "Inhibited"
+    },
+    {
+      "id": 8,
+      "name": "WAITING_SAMPLE",
+      "description": "Waiting sample"
+    },
+    {
+      "id": 9,
+      "name": "MOUNT_REQUIRED",
+      "description": "Configure the rigid installation using SET_BOARD_MOUNT on 2.24+, SET_IMU_MOUNT on 2.23, or the legacy centered and level yaw declaration."
+    }
+  ],
+  "feedback_source_vectors": [
+    {
+      "id": 0,
+      "name": "POSE",
+      "description": "Pose"
+    },
+    {
+      "id": 1,
+      "name": "TWIST",
+      "description": "Twist"
+    }
+  ],
+  "feedback_source_health_states": [
+    {
+      "id": 0,
+      "name": "HEALTHY",
+      "description": "Healthy"
+    },
+    {
+      "id": 1,
+      "name": "SUSPECT",
+      "description": "Suspect"
+    },
+    {
+      "id": 2,
+      "name": "UNAVAILABLE",
+      "description": "Unavailable"
+    },
+    {
+      "id": 3,
+      "name": "INDETERMINATE",
+      "description": "Indeterminate"
+    }
+  ],
+  "feedback_source_health_flags": [
+    {
+      "id": 1,
+      "name": "PROVENANCE",
+      "description": "Provenance"
+    },
+    {
+      "id": 2,
+      "name": "FRESH",
+      "description": "Fresh"
+    },
+    {
+      "id": 4,
+      "name": "DISAGREEMENT",
+      "description": "Disagreement"
+    },
+    {
+      "id": 8,
+      "name": "COMPARISON_AVAILABLE",
+      "description": "Comparison available"
+    },
+    {
+      "id": 16,
+      "name": "RECOVERING",
+      "description": "Recovering"
+    },
+    {
+      "id": 32,
+      "name": "RESTART_REQUIRED",
+      "description": "Restart required"
+    },
+    {
+      "id": 64,
+      "name": "TIMESTAMP_FAULT",
+      "description": "Timestamp fault"
+    },
+    {
+      "id": 128,
+      "name": "SATURATION",
+      "description": "Saturation"
+    }
+  ],
+  "mecanum_roller_orientations": [
+    {
+      "id": 0,
+      "name": "STANDARD"
+    },
+    {
+      "id": 1,
+      "name": "MIRRORED"
+    }
+  ],
+  "omni_wheel_orientations": [
+    {
+      "id": 0,
+      "name": "REAR"
+    },
+    {
+      "id": 1,
+      "name": "FRONT"
     }
   ]
 }

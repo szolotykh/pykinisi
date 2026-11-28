@@ -9,6 +9,8 @@ The SDK bundles public profiles for all four supported boards. After connection,
 and `controller.supports_sensor('imu')` checks both hardware and firmware support.
 Profiles are included in package releases; normal use requires no download.
 See [board profiles and sensors](docs/protocol-v2.md#board-profiles-and-sensors).
+For IMU-only or fused tracking on a Mini with protocol 2.24+, measure the
+[PCB underside-center mounting pose](docs/imu-mounting.md).
 
 Use `controller.subscribe(Topic.TEMPERATURE, callback, index=0, interval_ms=250)`
 for streamed samples. The same API covers encoder odometry, platform odometry,

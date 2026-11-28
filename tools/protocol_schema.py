@@ -26,12 +26,26 @@ def validate_subscription_settings(schema):
 
 def validate_metadata(schema, sizes):
     validate_subscription_settings(schema)
+    commands = {c['command']: c for c in schema['commands']}
+    for platform, field, names in (('MECANUM', 'roller_orientation', ['STANDARD', 'MIRRORED']),
+                                   ('OMNI', 'wheel_orientation', ['REAR', 'FRONT'])):
+        legacy_name = f'INITIALIZE_{platform}_PLATFORM'
+        catalog = schema.get(f'{platform.lower()}_{field}s')
+        oriented = commands.get(legacy_name + '_ORIENTED')
+        if catalog is None and oriented is None:
+            continue
+        if (not oriented or not catalog or [r.get('name') for r in catalog] != names or
+                any(type(r.get('id')) is not int or r['id'] != i for i, r in enumerate(catalog))):
+            raise ValueError(f'Invalid {platform.lower()} orientation catalog')
+        legacy_fields = [(p['name'], p['type']) for p in commands.get(legacy_name, {}).get('properties', [])]
+        oriented_fields = [(p['name'], p['type']) for p in oriented.get('properties', [])]
+        if not legacy_fields or oriented_fields != legacy_fields + [(field, 'uint8_t')]:
+            raise ValueError(f'Invalid oriented {platform.lower()} initializer layout')
     def version(value):
         if isinstance(value, str) and re.fullmatch(r'(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)', value):
             return tuple(map(int, value.split('.')))
         return None
 
-    commands = {c['command']: c for c in schema['commands']}
     for name, command in commands.items():
         if 'retired' not in command:
             continue

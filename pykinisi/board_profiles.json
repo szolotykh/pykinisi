@@ -6,6 +6,17 @@
         "model": 1,
         "revision": "0.1.0"
       },
+      "capabilities": {
+        "fusion_experiment": false,
+        "imu_tracking": false,
+        "feedback_source_selector": false,
+        "feedback_source_health": false,
+        "imu_mounting": false
+      },
+      "power": {
+        "driver_sleep": false,
+        "board_idle": false
+      },
       "resources": {
         "motors": 4,
         "encoders": 1,
@@ -57,6 +68,17 @@
       "board": {
         "model": 1,
         "revision": "0.2.0"
+      },
+      "capabilities": {
+        "fusion_experiment": false,
+        "imu_tracking": false,
+        "feedback_source_selector": false,
+        "feedback_source_health": false,
+        "imu_mounting": false
+      },
+      "power": {
+        "driver_sleep": false,
+        "board_idle": false
       },
       "resources": {
         "motors": 4,
@@ -110,6 +132,17 @@
         "model": 1,
         "revision": "0.3.0"
       },
+      "capabilities": {
+        "fusion_experiment": false,
+        "imu_tracking": false,
+        "feedback_source_selector": false,
+        "feedback_source_health": false,
+        "imu_mounting": false
+      },
+      "power": {
+        "driver_sleep": true,
+        "board_idle": true
+      },
       "resources": {
         "motors": 4,
         "encoders": 4,
@@ -160,7 +193,88 @@
     {
       "board": {
         "model": 1,
+        "revision": "0.3.1"
+      },
+      "capabilities": {
+        "fusion_experiment": false,
+        "imu_tracking": false,
+        "feedback_source_selector": false,
+        "feedback_source_health": false,
+        "imu_mounting": false
+      },
+      "power": {
+        "driver_sleep": true,
+        "board_idle": true
+      },
+      "resources": {
+        "motors": 4,
+        "encoders": 4,
+        "gpio": 10,
+        "status_leds": 1
+      },
+      "pwm_frequency": {
+        "default_hz": 100000,
+        "supported_hz": [
+          10000,
+          20000,
+          25000,
+          50000,
+          100000
+        ]
+      },
+      "motor_features": [
+        {
+          "id": 0,
+          "current_sense": false,
+          "current_limit": false,
+          "fault_reporting": false
+        },
+        {
+          "id": 1,
+          "current_sense": false,
+          "current_limit": false,
+          "fault_reporting": false
+        },
+        {
+          "id": 2,
+          "current_sense": false,
+          "current_limit": false,
+          "fault_reporting": false
+        },
+        {
+          "id": 3,
+          "current_sense": false,
+          "current_limit": false,
+          "fault_reporting": false
+        }
+      ],
+      "sensors": {
+        "temperature": [],
+        "imu": []
+      }
+    },
+    {
+      "imu_geometry": {
+        "underside_center_to_imu_um": [
+          -15373,
+          26953,
+          2075
+        ]
+      },
+      "board": {
+        "model": 1,
         "revision": "0.4.0"
+      },
+      "capabilities": {
+        "fusion_experiment": true,
+        "imu_tracking": true,
+        "feedback_source_selector": true,
+        "feedback_source_health": true,
+        "imu_mounting": true
+      },
+      "power": {
+        "driver_sleep": true,
+        "board_idle": true
       },
       "resources": {
         "motors": 4,

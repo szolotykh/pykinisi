@@ -14,11 +14,20 @@ import serial
 
 from .KinisiCommands import (
     KinisiCommands, InitResponse, ErrorCode, INIT, READY, ERROR,
+    INITIALIZE_MECANUM_PLATFORM_ORIENTED, MecanumRollerOrientation,
+    INITIALIZE_OMNI_PLATFORM_ORIENTED, OmniWheelOrientation,
     TIME_SYNC_REQUEST, TIME_SYNC_RESPONSE, START_ENCODER_ODOMETRY,
     GET_ENCODER_ODOMETRY, START_PLATFORM_ODOMETRY, GET_PLATFORM_ODOMETRY,
     PING, SET_HEARTBEAT_CONFIG, SUBSCRIBE_ODOMETRY, UNSUBSCRIBE_ODOMETRY,
     ENCODER_ODOMETRY_EVENT, PLATFORM_ODOMETRY_EVENT,
     EncoderOdometrySample, PlatformOdometrySample, GET_TEMPERATURE, GET_IMU, GET_MOTOR_CURRENT, GET_MOTOR_FAULTS, CLEAR_MOTOR_FAULTS, GET_PWM_FREQUENCY, SET_PWM_FREQUENCY, GET_MOTOR_CURRENT_LIMIT, SET_MOTOR_CURRENT_LIMIT,
+    FeedbackSourceVectorKind, FeedbackSourceStatus, FeedbackSourceVector,
+    GET_FEEDBACK_SOURCE_HEALTH, GET_FEEDBACK_IMU_CHANNELS,
+    SET_IMU_MOUNT, GET_IMU_MOUNT, SET_BOARD_MOUNT, GET_BOARD_MOUNT,
+    SET_FEEDBACK_SOURCE, GET_FEEDBACK_SOURCE_STATUS, GET_FEEDBACK_SOURCE_VECTOR, SET_FEEDBACK_FUSION_MOUNT, GET_FEEDBACK_FUSION_MOUNT,
+    SET_IMU_TRACKING, GET_IMU_TRACKING_STATUS, GET_IMU_TRACKING_VECTOR, GET_IMU_TRACKING_CONFIGURATION,
+    SET_FUSION_EXPERIMENT, GET_FUSION_STATUS, GET_FUSION_VECTOR, GET_FUSION_CONFIGURATION,
+    SAVE_CONFIGURATION, GET_CONFIGURATION_FIELD, SET_DRIVER_SLEEP, GET_DRIVER_SLEEP, SET_BOARD_IDLE, GET_BOARD_IDLE,
     SUBSCRIBE, SUBSCRIBE_WITH_MODE, SUBSCRIBE_CONFIGURED, UNSUBSCRIBE, TELEMETRY_EVENT, Topic, SubscriptionMode, SubscriptionTrigger, SubscriptionDelivery, validate_topic, decode_telemetry_event,
 )
 from .board_profile import get_board_profile, supports_board_sensor, supports_motor_current, supports_motor_faults, get_motor_current_limit_options, supports_motor_current_limit, get_pwm_frequency_options, supports_pwm_frequency
@@ -131,6 +140,57 @@ class Subscription:
         self.unsubscribe()
 
 
+@dataclass(frozen=True)
+class FeedbackSourceSnapshot:
+    """One verified board observation in native relative-world and body frames."""
+    status: FeedbackSourceStatus
+    pose: 'FeedbackSourceVector | None'
+    twist: 'FeedbackSourceVector | None'
+
+
+@dataclass(frozen=True)
+class BoardMountGeometry:
+    """Board-to-chassis angles in degrees and PCB underside-center position in chassis metres."""
+    roll_deg: float
+    pitch_deg: float
+    yaw_deg: float
+    x_m: float
+    y_m: float
+    z_m: float
+    configured: bool
+
+
+@dataclass(frozen=True)
+class ImuMountGeometry:
+    """Board-to-chassis angles in degrees and origin-to-chip distances in chassis metres."""
+    roll_deg: float
+    pitch_deg: float
+    yaw_deg: float
+    x_m: float
+    y_m: float
+    z_m: float
+    configured: bool
+
+
+def _mount_units(value, limit, scale, name):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not -limit <= value <= limit:
+        raise ValueError(f'{name} must be a finite number in [{-limit}, {limit}]')
+    fraction, whole = math.modf(abs(value) * scale)
+    magnitude = int(whole) + (fraction >= 0.5)
+    return -magnitude if value < 0 else magnitude
+
+
+def _mount_arguments(roll_deg, pitch_deg, yaw_deg, x_m, y_m, z_m):
+    return (
+        _mount_units(roll_deg, 180, 100, 'roll_deg'),
+        _mount_units(pitch_deg, 90, 100, 'pitch_deg'),
+        _mount_units(yaw_deg, 180, 100, 'yaw_deg'),
+        _mount_units(x_m, 10, 1_000_000, 'x_m'),
+        _mount_units(y_m, 10, 1_000_000, 'y_m'),
+        _mount_units(z_m, 10, 1_000_000, 'z_m'),
+    )
+
+
 class KinisiController(KinisiCommands):
     """A protocol-v2 serial client; disconnect or use a context manager when finished."""
 
@@ -187,6 +247,157 @@ class KinisiController(KinisiCommands):
     def supports_pwm_frequency(self):
         with self._lock:
             return supports_pwm_frequency(self.board_info)
+
+    def supports_configuration_save(self):
+        """Return whether the connected board can save its setup to FRAM."""
+        with self._lock:
+            info = self.board_info
+            return (self._ready and self.board_profile is not None and
+                    (info.board_model, info.board_major, info.board_minor, info.board_patch) == (1, 0, 4, 0) and
+                    info.protocol_major == 2 and info.protocol_minor >= 14)
+
+    def get_omni_wheel_orientation(self):
+        """Read the single wheel position, or the fixed REAR layout on pre-2.26 firmware."""
+        value = self.get_configuration_field(8, 0)
+        try:
+            return OmniWheelOrientation(value)
+        except ValueError as exc:
+            raise ProtocolError('Invalid omni wheel orientation in configuration response') from exc
+
+    def get_mecanum_roller_orientation(self):
+        """Read the applied layout, or the fixed STANDARD layout on pre-2.25 firmware."""
+        value = self.get_configuration_field(7, 0)
+        try:
+            return MecanumRollerOrientation(value)
+        except ValueError as exc:
+            raise ProtocolError('Invalid mecanum roller orientation in configuration response') from exc
+
+    def supports_driver_sleep(self):
+        """Require READY and the minimum protocol for the exact supported board."""
+        with self._lock:
+            info = self.board_info
+            profile = self.board_profile
+            if not self.ready or info is None or profile is None or info.protocol_major != 2:
+                return False
+            identity = (info.board_model, info.board_major, info.board_minor, info.board_patch)
+            minimum = {(1, 0, 3, 0): 17, (1, 0, 3, 1): 17, (1, 0, 4, 0): 15}.get(identity)
+            return (minimum is not None and profile.get('power', {}).get('driver_sleep') is True and
+                    info.protocol_minor >= minimum)
+
+    def supports_fusion_experiment(self):
+        """Opt-in experiment on exact v0.4.0 and compatible protocol 2.19+."""
+        with self._lock:
+            info = self.board_info
+            profile = self.board_profile
+            return bool(self.ready and info is not None and profile is not None and
+                        (info.board_model, info.board_major, info.board_minor, info.board_patch) == (1, 0, 4, 0) and
+                        info.protocol_major == 2 and info.protocol_minor >= 19 and
+                        profile.get('capabilities', {}).get('fusion_experiment') is True)
+
+    def _supports_feedback_capability(self, capability, minor):
+        with self._lock:
+            info = self.board_info
+            profile = self.board_profile
+            return bool(self.ready and info and profile and
+                        (info.board_model, info.board_major, info.board_minor, info.board_patch) == (1, 0, 4, 0) and
+                        info.protocol_major == 2 and minor <= info.protocol_minor <= 255 and
+                        profile.get('capabilities', {}).get(capability) is True)
+
+    def supports_feedback_source_selector(self):
+        """Require the exact board capability and READY protocol 2.21+."""
+        return self._supports_feedback_capability('feedback_source_selector', 21)
+
+    def supports_feedback_source_health(self):
+        """Whether the board supports read-only source health and BMI088 channel times."""
+        return self._supports_feedback_capability('feedback_source_health', 22)
+
+    def supports_board_mounting(self):
+        """Whether this READY session supports the PCB underside-center mounting configuration."""
+        return self._supports_feedback_capability('imu_mounting', 24)
+
+    def set_board_mount_geometry(self, roll_deg, pitch_deg, yaw_deg, x_m, y_m, z_m):
+        """Set Rz(yaw) Ry(pitch) Rx(roll) and the chassis-origin to PCB underside-center offset."""
+        self.set_board_mount(*_mount_arguments(roll_deg, pitch_deg, yaw_deg, x_m, y_m, z_m))
+
+    def get_board_mount_geometry(self) -> BoardMountGeometry:
+        """Read the quantized PCB underside-center pose and the explicit configuration flag."""
+        mount = self.get_board_mount()
+        return BoardMountGeometry(mount.roll_cdeg / 100, mount.pitch_cdeg / 100, mount.yaw_cdeg / 100,
+                                  mount.x_um / 1_000_000, mount.y_um / 1_000_000, mount.z_um / 1_000_000,
+                                  mount.configured)
+
+    def supports_imu_mounting(self):
+        """Whether this READY session supports the legacy chip-referenced configuration."""
+        return self._supports_feedback_capability('imu_mounting', 23)
+
+    def set_imu_mount_geometry(self, roll_deg, pitch_deg, yaw_deg, x_m, y_m, z_m):
+        """Deprecated chip-reference setter. Offsets locate the BMI088 in chassis metres."""
+        self.set_imu_mount(*_mount_arguments(roll_deg, pitch_deg, yaw_deg, x_m, y_m, z_m))
+
+    def get_imu_mount_geometry(self) -> ImuMountGeometry:
+        """Deprecated chip-reference getter. Read the applied BMI088 location in chassis metres."""
+        mount = self.get_imu_mount()
+        return ImuMountGeometry(mount.roll_cdeg / 100, mount.pitch_cdeg / 100, mount.yaw_cdeg / 100,
+                                mount.x_um / 1_000_000, mount.y_um / 1_000_000, mount.z_um / 1_000_000,
+                                mount.configured)
+
+    def read_feedback_source_snapshot(self):
+        """Bracket pose and twist with board status. Invalid status has no vectors."""
+        session = self._session
+        fields = ('requested', 'active', 'origin_id')
+        for _ in range(3):
+            first = self.get_feedback_source_status()
+            if session != self._session or not self.ready:
+                raise ConnectionClosedError('Controller session changed')
+            if not first.valid:
+                return FeedbackSourceSnapshot(first, None, None)
+            pose = twist = None
+            try:
+                pose = self.get_feedback_source_vector(FeedbackSourceVectorKind.POSE, first.origin_id, first.sequence)
+                twist = self.get_feedback_source_vector(FeedbackSourceVectorKind.TWIST, first.origin_id, first.sequence)
+            except ControllerError as error:
+                if error.error_code != ErrorCode.SAMPLE_NOT_AVAILABLE:
+                    raise
+            status = self.get_feedback_source_status()
+            if session != self._session or not self.ready:
+                raise ConnectionClosedError('Controller session changed')
+            if not status.valid:
+                return FeedbackSourceSnapshot(status, None, None)
+            if (pose is None or twist is None or pose.sequence != first.sequence or twist.sequence != first.sequence or
+                    any(getattr(first, field) != getattr(status, field) for field in fields)):
+                continue
+            advance = (status.sequence - first.sequence) & 0xffffffff
+            tick = status.timestamp_us - first.timestamp_us
+            if advance >= 0x80000000 or tick < 0 or (advance == 0) != (tick == 0):
+                continue
+            age_at_check = tick + status.age_us
+            elapsed = age_at_check - first.age_us
+            if 0 <= elapsed <= 50000 and age_at_check <= 1000 * min(first.max_age_ms, status.max_age_ms):
+                first.age_us = age_at_check
+                return FeedbackSourceSnapshot(first, pose, twist)
+        raise ProtocolError('Feedback source changed during read. No coherent snapshot available.')
+
+    def supports_imu_tracking(self):
+        """Opt-in experiment on exact v0.4.0 and compatible protocol 2.20+."""
+        with self._lock:
+            info = self.board_info
+            profile = self.board_profile
+            return bool(self.ready and info is not None and profile is not None and
+                        (info.board_model, info.board_major, info.board_minor, info.board_patch) == (1, 0, 4, 0) and
+                        info.protocol_major == 2 and info.protocol_minor >= 20 and
+                        profile.get('capabilities', {}).get('imu_tracking') is True)
+
+    def supports_board_idle(self):
+        """Require READY and the board-specific minimum protocol for shallow idle."""
+        with self._lock:
+            info = self.board_info
+            profile = self.board_profile
+            if not self.ready or info is None or profile is None or info.protocol_major != 2:
+                return False
+            identity = (info.board_model, info.board_major, info.board_minor, info.board_patch)
+            minimum = {(1, 0, 3, 0): 18, (1, 0, 3, 1): 18, (1, 0, 4, 0): 16}.get(identity)
+            return (minimum is not None and profile.get('power', {}).get('board_idle') is True and
+                    info.protocol_minor >= minimum)
 
     def get_motor_current_limit_options(self, index=0):
         """Read the selected motor's supported thresholds and disable capability."""
@@ -424,6 +635,34 @@ class KinisiController(KinisiCommands):
                     raise ProtocolError('Motor current requires a ready protocol 2.7+ controller')
                 if command in (SUBSCRIBE, SUBSCRIBE_WITH_MODE, SUBSCRIBE_CONFIGURED) and self.board_profile is not None and not self.supports_topic(payload[0], payload[1]):
                     raise ProtocolError('This board does not support the selected telemetry source')
+            orientation_field = command == GET_CONFIGURATION_FIELD and payload in (bytes((7, 0)), bytes((8, 0)))
+            if orientation_field or command in (INITIALIZE_MECANUM_PLATFORM_ORIENTED, INITIALIZE_OMNI_PLATFORM_ORIENTED):
+                if not self._ready or self.board_info is None or self.board_info.protocol_major != 2:
+                    raise ProtocolError('Platform orientation requires a ready protocol 2.x controller')
+                omni = command == INITIALIZE_OMNI_PLATFORM_ORIENTED or (orientation_field and payload[0] == 8)
+                required_minor = 26 if omni else 25
+                if self.board_info.protocol_minor < required_minor:
+                    if orientation_field:
+                        return struct.pack('<d', 0)  # Fixed legacy layout for each platform.
+                    raise ProtocolError(f'Oriented initialization requires protocol 2.{required_minor} or newer')
+            if command in (SAVE_CONFIGURATION, GET_CONFIGURATION_FIELD) and not orientation_field and not self.supports_configuration_save():
+                raise ProtocolError('Configuration storage requires a ready v0.4 controller running protocol 2.14 or newer')
+            if command in (SET_DRIVER_SLEEP, GET_DRIVER_SLEEP) and not self.supports_driver_sleep():
+                raise ProtocolError('Driver sleep requires READY and a supported board: v0.3/Nano protocol 2.17+, v0.4 protocol 2.15+')
+            if command in (SET_BOARD_MOUNT, GET_BOARD_MOUNT) and not self.supports_board_mounting():
+                raise ProtocolError('Board-center mounting requires READY, exact v0.4.0 capability and protocol 2.24+')
+            if command in (SET_IMU_MOUNT, GET_IMU_MOUNT) and not self.supports_imu_mounting():
+                raise ProtocolError('IMU mounting requires READY, exact v0.4.0 capability and protocol 2.23+')
+            if command in (GET_FEEDBACK_SOURCE_HEALTH, GET_FEEDBACK_IMU_CHANNELS) and not self.supports_feedback_source_health():
+                raise ProtocolError('Feedback source health requires READY, exact v0.4.0 capability and protocol 2.22+')
+            if command in (SET_FEEDBACK_SOURCE, GET_FEEDBACK_SOURCE_STATUS, GET_FEEDBACK_SOURCE_VECTOR, SET_FEEDBACK_FUSION_MOUNT, GET_FEEDBACK_FUSION_MOUNT) and not self.supports_feedback_source_selector():
+                raise ProtocolError('Feedback source selector requires READY, exact v0.4.0 capability and protocol 2.21+')
+            if command in (SET_IMU_TRACKING, GET_IMU_TRACKING_STATUS, GET_IMU_TRACKING_VECTOR, GET_IMU_TRACKING_CONFIGURATION) and not self.supports_imu_tracking():
+                raise ProtocolError('IMU tracking requires READY, exact v0.4.0 capability and protocol 2.20+')
+            if command in (SET_FUSION_EXPERIMENT, GET_FUSION_STATUS, GET_FUSION_VECTOR, GET_FUSION_CONFIGURATION) and not self.supports_fusion_experiment():
+                raise ProtocolError('Fusion experiment requires READY, exact v0.4.0 capability and protocol 2.19+')
+            if command in (SET_BOARD_IDLE, GET_BOARD_IDLE) and not self.supports_board_idle():
+                raise ProtocolError('Board idle requires READY and a supported profile: v0.3/Nano protocol 2.18+, v0.4 protocol 2.16+')
             if command in (GET_PWM_FREQUENCY, SET_PWM_FREQUENCY):
                 if not self._ready or self.board_info is None or self.board_info.protocol_major != 2 or self.board_info.protocol_minor < 13:
                     raise ProtocolError('PWM frequency configuration requires a ready protocol 2.13 or newer controller')
@@ -564,6 +803,8 @@ class KinisiController(KinisiCommands):
 
         Samples replace earlier values in a bounded cache. Reading it never sends a
         command or blocks the receive thread; each sample retains its measurement time.
+        Board idle pauses events without clearing this cache: a cached sample is
+        not proof of a fresh measurement, even immediately after waking.
         """
         if type(source) is not int or not 0 <= source <= 4:
             raise ValueError("source must be 0..4")

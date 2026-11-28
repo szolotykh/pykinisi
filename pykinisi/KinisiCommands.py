@@ -6,10 +6,10 @@ Transport framing, message IDs, and synchronization live in KinisiController.
 
 import math
 import struct
-from enum import IntEnum
+from enum import IntEnum, IntFlag
 
 
-PROTOCOL_VERSION = (2, 13, 0)
+PROTOCOL_VERSION = (2, 26, 0)
 
 GET_TEMPERATURE = 0x50
 GET_IMU = 0x51
@@ -92,6 +92,33 @@ SET_MOTOR_CURRENT_LIMIT = 0x56
 SUBSCRIBE_CONFIGURED = 0x84
 GET_PWM_FREQUENCY = 0x57
 SET_PWM_FREQUENCY = 0x58
+SAVE_CONFIGURATION = 0x59
+GET_CONFIGURATION_FIELD = 0x5A
+SET_DRIVER_SLEEP = 0x5B
+GET_DRIVER_SLEEP = 0x5C
+SET_BOARD_IDLE = 0x5D
+GET_BOARD_IDLE = 0x5E
+SET_FUSION_EXPERIMENT = 0x5F
+GET_FUSION_STATUS = 0x60
+GET_FUSION_VECTOR = 0x61
+GET_FUSION_CONFIGURATION = 0x62
+SET_IMU_TRACKING = 0x63
+GET_IMU_TRACKING_STATUS = 0x64
+GET_IMU_TRACKING_VECTOR = 0x65
+GET_IMU_TRACKING_CONFIGURATION = 0x66
+SET_FEEDBACK_SOURCE = 0x67
+GET_FEEDBACK_SOURCE_STATUS = 0x68
+GET_FEEDBACK_SOURCE_VECTOR = 0x69
+SET_FEEDBACK_FUSION_MOUNT = 0x6A
+GET_FEEDBACK_FUSION_MOUNT = 0x6B
+GET_FEEDBACK_SOURCE_HEALTH = 0x6C
+GET_FEEDBACK_IMU_CHANNELS = 0x6D
+SET_IMU_MOUNT = 0x6E
+GET_IMU_MOUNT = 0x6F
+SET_BOARD_MOUNT = 0x85
+GET_BOARD_MOUNT = 0x86
+INITIALIZE_MECANUM_PLATFORM_ORIENTED = 0x87
+INITIALIZE_OMNI_PLATFORM_ORIENTED = 0x88
 
 
 class ErrorCode(IntEnum):
@@ -115,6 +142,9 @@ class ErrorCode(IntEnum):
     SENSOR_NOT_AVAILABLE = 16
     SUBSCRIPTION_LIMIT = 17
     SAMPLE_OUT_OF_RANGE = 18
+    DRIVERS_ASLEEP = 19
+    BOARD_IDLE = 20
+    SOURCE_SWITCH_UNSAFE = 21
 
 
 ERROR_DESCRIPTIONS = {
@@ -136,6 +166,9 @@ ERROR_DESCRIPTIONS = {
     16: 'The selected sensor is not defined on this board.',
     17: 'This connection has no free subscription slots; unsubscribe an existing source first.',
     18: 'The sensor reading is saturated; no valid measurement can be returned.',
+    19: 'Driver sleep is active. Explicitly wake the drivers before requesting this operation.',
+    20: 'Board idle is active. Explicitly wake the board before changing driver sleep or starting a subscription.',
+    21: 'Stop all motor outputs, disarm all controllers and wait for stationary wheel observations before changing the tracking preference.',
 }
 
 
@@ -687,6 +720,490 @@ class MotorCurrentLimit:
         return cls(*_unpack_payload('<?H', payload))
 
 
+class FusionStatus:
+    """Volatile v0.4 fusion experiment diagnostics; see command descriptions.
+
+    mode: Selected fusion_modes value.
+    health: Current fusion_health value.
+    fault: Current fusion_faults reason, or NONE.
+    flags: Bitmask of fusion_flags; ESTIMATE_VALID is required before using estimates.
+    sequence: Snapshot sequence; compare with each vector before associating this status.
+    timestamp_us: Monotonic board microseconds of this estimate snapshot; not wall time.
+    accel_age_us: UINT32_MAX means unavailable.
+    gyro_age_us: UINT32_MAX means unavailable.
+    encoder_age_us: UINT32_MAX means unavailable.
+    """
+
+    def __init__(self, mode: int, health: int, fault: int, flags: int, sequence: int, timestamp_us: int, accel_age_us: int, gyro_age_us: int, encoder_age_us: int):
+        """Store the fields of one controller payload."""
+        self.mode = mode
+        self.health = health
+        self.fault = fault
+        self.flags = flags
+        self.sequence = sequence
+        self.timestamp_us = timestamp_us
+        self.accel_age_us = accel_age_us
+        self.gyro_age_us = gyro_age_us
+        self.encoder_age_us = encoder_age_us
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 28
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<BBBBIQIII', self.mode, self.health, self.fault, self.flags, self.sequence, self.timestamp_us, self.accel_age_us, self.gyro_age_us, self.encoder_age_us))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'FusionStatus':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<BBBBIQIII', payload))
+
+
+class FusionVector:
+    """Volatile v0.4 fusion experiment diagnostics; see command descriptions.
+
+    sequence: Match GET_FUSION_STATUS sequence before associating its timestamp or health.
+    x: Pose X in metres, twist X in metres per second, or X accelerometer bias in metres per
+    second squared, selected by kind.
+    y: Pose Y in metres, twist Y in metres per second, or Y accelerometer bias in metres per
+    second squared, selected by kind.
+    z: Pose yaw in radians, twist yaw rate in radians per second, or Z gyro bias in radians
+    per second, selected by kind.
+    """
+
+    def __init__(self, sequence: int, x: float, y: float, z: float):
+        """Store the fields of one controller payload."""
+        self.sequence = sequence
+        self.x = x
+        self.y = y
+        self.z = z
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 28
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<Iddd', self.sequence, self.x, self.y, self.z))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'FusionVector':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<Iddd', payload))
+
+
+class FusionConfiguration:
+    """Volatile v0.4 fusion experiment diagnostics; see command descriptions.
+
+    mode: Selected fusion_modes value; boot default is LEGACY_ENCODER.
+    mounting_yaw_rad: Angle of board +X in the chassis XY plane, counterclockwise about
+    chassis +Z; finite radians in [-pi, pi].
+    """
+
+    def __init__(self, mode: int, mounting_yaw_rad: float):
+        """Store the fields of one controller payload."""
+        self.mode = mode
+        self.mounting_yaw_rad = mounting_yaw_rad
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 9
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<Bd', self.mode, self.mounting_yaw_rad))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'FusionConfiguration':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<Bd', payload))
+
+
+class ImuTrackingStatus:
+    """Volatile IMU-only relative tracking diagnostics.
+
+    state: ImuTrackingState value.
+    fault: ImuTrackingFault value.
+    flags: ImuTrackingFlag bitmask.
+    reserved: Reserved; must be zero.
+    sequence: Snapshot sequence; match vector reads.
+    timestamp_us: Last eligible monotonic joint accel/gyro source watermark; no published
+    watermark reaches origin + window_us. Zero before the first estimate.
+    elapsed_us: Wall elapsed microseconds since the source origin, capped at window_us;
+    distinct from the retained source watermark. Frozen on fault or expiry; STOP clears it.
+    accel_age_us: Accel age in microseconds; UINT32_MAX if unavailable.
+    gyro_age_us: Gyro age in microseconds; UINT32_MAX if unavailable.
+    """
+
+    def __init__(self, state: int, fault: int, flags: int, reserved: int, sequence: int, timestamp_us: int, elapsed_us: int, accel_age_us: int, gyro_age_us: int):
+        """Store the fields of one controller payload."""
+        self.state = state
+        self.fault = fault
+        self.flags = flags
+        self.reserved = reserved
+        self.sequence = sequence
+        self.timestamp_us = timestamp_us
+        self.elapsed_us = elapsed_us
+        self.accel_age_us = accel_age_us
+        self.gyro_age_us = gyro_age_us
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 28
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<BBBBIQIII', self.state, self.fault, self.flags, self.reserved, self.sequence, self.timestamp_us, self.elapsed_us, self.accel_age_us, self.gyro_age_us))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'ImuTrackingStatus':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<BBBBIQIII', payload))
+
+
+class ImuTrackingVector:
+    """Volatile IMU-only relative tracking diagnostics.
+
+    sequence: Match status sequence before associating health and time.
+    x: Pose X, body velocity X, or acceleration bias X, selected by kind.
+    y: Pose Y, body velocity Y, or acceleration bias Y, selected by kind.
+    z: Pose yaw, body yaw rate, or gyro Z bias, selected by kind.
+    """
+
+    def __init__(self, sequence: int, x: float, y: float, z: float):
+        """Store the fields of one controller payload."""
+        self.sequence = sequence
+        self.x = x
+        self.y = y
+        self.z = z
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 28
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<Iddd', self.sequence, self.x, self.y, self.z))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'ImuTrackingVector':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<Iddd', payload))
+
+
+class ImuTrackingConfiguration:
+    """Volatile IMU-only relative tracking diagnostics.
+
+    mounting_yaw_rad: Declared supported mounting yaw in radians.
+    window_us: Actual source tracking horizon in microseconds; 1000000 for this v0.4
+    release. Eligible source times are [origin, origin + window_us).
+    """
+
+    def __init__(self, mounting_yaw_rad: float, window_us: int):
+        """Store the fields of one controller payload."""
+        self.mounting_yaw_rad = mounting_yaw_rad
+        self.window_us = window_us
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 12
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<dI', self.mounting_yaw_rad, self.window_us))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'ImuTrackingConfiguration':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<dI', payload))
+
+
+class FeedbackSourceStatus:
+    """Board-wide selected tracking telemetry status.
+
+    requested: Requested FeedbackSource.
+    active: Active FeedbackSource, NONE while invalid.
+    valid: One when a current source snapshot is available, otherwise zero.
+    reason: FeedbackSourceReason.
+    sequence: Underlying sample sequence when valid; zero when invalid.
+    timestamp_us: Underlying monotonic board sample time; zero when invalid.
+    origin_id: Board-local frame generation. Discard prior coordinates on change or board
+    reboot.
+    source_detail: Native IMU tracking or fusion fault code for the requested source; zero
+    otherwise.
+    age_us: Board-clock sample age in microseconds; UINT32_MAX when unavailable.
+    max_age_ms: Maximum eligible captured sample age in milliseconds for this source,
+    including the configured encoder period. Compare updated original sample age with the
+    smaller of its captured and current limits.
+    """
+
+    def __init__(self, requested: int, active: int, valid: int, reason: int, sequence: int, timestamp_us: int, origin_id: int, source_detail: int, age_us: int, max_age_ms: int):
+        """Store the fields of one controller payload."""
+        self.requested = requested
+        self.active = active
+        self.valid = valid
+        self.reason = reason
+        self.sequence = sequence
+        self.timestamp_us = timestamp_us
+        self.origin_id = origin_id
+        self.source_detail = source_detail
+        self.age_us = age_us
+        self.max_age_ms = max_age_ms
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 27
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<BBBBIQIBIH', self.requested, self.active, self.valid, self.reason, self.sequence, self.timestamp_us, self.origin_id, self.source_detail, self.age_us, self.max_age_ms))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'FeedbackSourceStatus':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<BBBBIQIBIH', payload))
+
+
+class FeedbackSourceVector:
+    """Selected source vector in the selector pose frame or native body twist frame.
+
+    sequence: Exact producer sequence captured by status and requested by the vector
+    command.
+    x: X coordinate or body X velocity.
+    y: Y coordinate or body Y velocity.
+    z: Continuous relative yaw or body yaw rate.
+    """
+
+    def __init__(self, sequence: int, x: float, y: float, z: float):
+        """Store the fields of one controller payload."""
+        self.sequence = sequence
+        self.x = x
+        self.y = y
+        self.z = z
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 28
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<Iddd', self.sequence, self.x, self.y, self.z))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'FeedbackSourceVector':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<Iddd', payload))
+
+
+class FeedbackFusionMount:
+    """Passive tracking mount, independent of chassis control.
+
+    confirmed: One after an explicit mount declaration this boot.
+    mounting_yaw_rad: Angle of board +X in chassis XY, counterclockwise about +Z in radians.
+    A centered, level board with +Z up is required only for a yaw-only installation.
+    """
+
+    def __init__(self, confirmed: int, mounting_yaw_rad: float):
+        """Store the fields of one controller payload."""
+        self.confirmed = confirmed
+        self.mounting_yaw_rad = mounting_yaw_rad
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 9
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<Bd', self.confirmed, self.mounting_yaw_rad))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'FeedbackFusionMount':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<Bd', payload))
+
+
+class FeedbackSourceHealth:
+    """Read producer health independently of selector and control. ENCODER is the running
+    platform encoder batch, IMU_ONLY is physical BMI088 pair availability independent of the
+    one-second estimate, FUSED is the passive fused estimate. Disagreement indicates
+    conflicting observations without assigning sensor blame. HEALTHY means directly usable
+    data. Comparability is separate. Historical provenance remains readable during failure.
+    Reconnect reads board state.
+
+    source: Echo of FeedbackSource request.
+    health: FeedbackSourceHealthState.
+    reason: FeedbackSourceReason for current producer availability.
+    detail: FusionFault explanation if present.
+    flags: FeedbackSourceHealthFlag bit mask.
+    sequence: Sequence of the last producer publication or observed distinct raw IMU pair,
+    wrapping modulo 2^32; use PROVENANCE for presence.
+    timestamp_us: Last usable source time in board uptime microseconds. For the BMI088 pair
+    this is its older die timestamp.
+    age_us: Age of that timestamp in board uptime microseconds, UINT32_MAX if absent, future
+    or too old to represent.
+    max_age_us: Source freshness budget in microseconds.
+    """
+
+    def __init__(self, source: int, health: int, reason: int, detail: int, flags: int, sequence: int, timestamp_us: int, age_us: int, max_age_us: int):
+        """Store the fields of one controller payload."""
+        self.source = source
+        self.health = health
+        self.reason = reason
+        self.detail = detail
+        self.flags = flags
+        self.sequence = sequence
+        self.timestamp_us = timestamp_us
+        self.age_us = age_us
+        self.max_age_us = max_age_us
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 28
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<BBBBIIQII', self.source, self.health, self.reason, self.detail, self.flags, self.sequence, self.timestamp_us, self.age_us, self.max_age_us))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'FeedbackSourceHealth':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<BBBBIIQII', payload))
+
+
+class FeedbackImuChannels:
+    """Read independent last observed accelerometer and gyro acquisition times in board uptime
+    microseconds. A timestamp of zero and age UINT32_MAX indicate no observed acquisition.
+    These are physical source observations, independent of the finite IMU-only tracking
+    window. A pair must meet the 35000 us age and 15000 us skew limits.
+
+    accel_timestamp_us: Last observed accelerometer acquisition time in board uptime
+    microseconds.
+    gyro_timestamp_us: Last observed gyro acquisition time in board uptime microseconds.
+    accel_age_us: Board-derived acquisition age in microseconds, UINT32_MAX if unknown.
+    gyro_age_us: Board-derived acquisition age in microseconds, UINT32_MAX if unknown.
+    """
+
+    def __init__(self, accel_timestamp_us: int, gyro_timestamp_us: int, accel_age_us: int, gyro_age_us: int):
+        """Store the fields of one controller payload."""
+        self.accel_timestamp_us = accel_timestamp_us
+        self.gyro_timestamp_us = gyro_timestamp_us
+        self.accel_age_us = accel_age_us
+        self.gyro_age_us = gyro_age_us
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 24
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<QQII', self.accel_timestamp_us, self.gyro_timestamp_us, self.accel_age_us, self.gyro_age_us))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'FeedbackImuChannels':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<QQII', payload))
+
+
+class ImuMountConfiguration:
+    """Signed board orientation and displacement to the chip in chassis axes.
+
+    roll_cdeg: Board-to-chassis roll in signed hundredths of a degree.
+    pitch_cdeg: Board-to-chassis pitch in signed hundredths of a degree.
+    yaw_cdeg: Board-to-chassis yaw in signed hundredths of a degree.
+    x_um: Signed displacement from the tracking origin to the BMI088 chip along chassis +X
+    (forward), in micrometres. A position derived from the other reference can exceed its
+    setter's 10 m input range.
+    y_um: Signed displacement from the tracking origin to the BMI088 chip along chassis +Y
+    (left), in micrometres. A position derived from the other reference can exceed its
+    setter's 10 m input range.
+    z_um: Signed displacement from the tracking origin to the BMI088 chip along chassis +Z
+    (up), in micrometres. A position derived from the other reference can exceed its
+    setter's 10 m input range.
+    configured: True after explicit mount setup or restore. False selects legacy per-mode
+    yaw.
+    """
+
+    def __init__(self, roll_cdeg: int, pitch_cdeg: int, yaw_cdeg: int, x_um: int, y_um: int, z_um: int, configured: bool):
+        """Store the fields of one controller payload."""
+        self.roll_cdeg = roll_cdeg
+        self.pitch_cdeg = pitch_cdeg
+        self.yaw_cdeg = yaw_cdeg
+        self.x_um = x_um
+        self.y_um = y_um
+        self.z_um = z_um
+        self.configured = configured
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 19
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<hhhiii?', self.roll_cdeg, self.pitch_cdeg, self.yaw_cdeg, self.x_um, self.y_um, self.z_um, self.configured))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'ImuMountConfiguration':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<hhhiii?', payload))
+
+
+class BoardMountConfiguration:
+    """Applied orientation and chassis-to-PCB underside-center displacement.
+
+    roll_cdeg: Board-to-chassis roll in signed hundredths of a degree.
+    pitch_cdeg: Board-to-chassis pitch in signed hundredths of a degree.
+    yaw_cdeg: Board-to-chassis yaw in signed hundredths of a degree.
+    x_um: Signed displacement from the tracking origin to the geometric center of the PCB
+    underside along chassis +X (forward), in micrometres. A position derived from the other
+    reference can exceed its setter's 10 m input range.
+    y_um: Signed displacement from the tracking origin to the geometric center of the PCB
+    underside along chassis +Y (left), in micrometres. A position derived from the other
+    reference can exceed its setter's 10 m input range.
+    z_um: Signed displacement from the tracking origin to the geometric center of the PCB
+    underside along chassis +Z (up), in micrometres. A position derived from the other
+    reference can exceed its setter's 10 m input range.
+    configured: True after explicit mount setup or restore. False selects legacy per-mode
+    yaw.
+    """
+
+    def __init__(self, roll_cdeg: int, pitch_cdeg: int, yaw_cdeg: int, x_um: int, y_um: int, z_um: int, configured: bool):
+        """Store the fields of one controller payload."""
+        self.roll_cdeg = roll_cdeg
+        self.pitch_cdeg = pitch_cdeg
+        self.yaw_cdeg = yaw_cdeg
+        self.x_um = x_um
+        self.y_um = y_um
+        self.z_um = z_um
+        self.configured = configured
+
+    @staticmethod
+    def get_size() -> int:
+        """Return the encoded payload size, excluding the message header."""
+        return 19
+
+    def encode(self) -> bytearray:
+        """Encode every field using the packed little-endian wire layout."""
+        return bytearray(struct.pack('<hhhiii?', self.roll_cdeg, self.pitch_cdeg, self.yaw_cdeg, self.x_um, self.y_um, self.z_um, self.configured))
+
+    @classmethod
+    def decode(cls, payload: bytes) -> 'BoardMountConfiguration':
+        """Decode exactly one payload; reject truncation and trailing bytes."""
+        return cls(*_unpack_payload('<hhhiii?', payload))
+
+
 class SubscriptionMode(IntEnum):
     """Delivery behavior for a generic telemetry subscription."""
     PERIODIC = 0
@@ -709,6 +1226,141 @@ class PwmFrequency(IntEnum):
     KHZ_25 = 25000
     KHZ_50 = 50000
     KHZ_100 = 100000
+
+
+class MecanumRollerOrientation(IntEnum):
+    STANDARD = 0
+    MIRRORED = 1
+
+
+class OmniWheelOrientation(IntEnum):
+    REAR = 0
+    FRONT = 1
+
+
+class FusionMode(IntEnum):
+    LEGACY_ENCODER = 0
+    ENCODER_CORRECTION = 1
+    FUSED = 2
+
+
+class FusionHealth(IntEnum):
+    DISABLED = 0
+    WAITING = 1
+    HEALTHY = 2
+    FAULT = 3
+
+
+class FusionFault(IntEnum):
+    NONE = 0
+    MOUNT_INVALID = 1
+    ENCODER_UNAVAILABLE = 2
+    IMU_UNAVAILABLE = 3
+    STALE = 4
+    TIMESTAMP = 5
+    SATURATION = 6
+    BIAS_NOT_READY = 7
+    DISCONTINUITY = 8
+    INHIBITED = 9
+
+
+class FusionFlag(IntEnum):
+    ESTIMATE_VALID = 1
+    BIAS_READY = 2
+    FRESH_TARGET_REQUIRED = 4
+    CORRECTION_ACTIVE = 8
+
+
+class FusionVectorKind(IntEnum):
+    ENCODER_POSE = 0
+    ENCODER_TWIST = 1
+    FUSED_POSE = 2
+    FUSED_TWIST = 3
+    BIAS = 4
+
+
+class ImuTrackingAction(IntEnum):
+    START = 0
+    STOP = 1
+    RESET = 2
+    RECALIBRATE = 3
+
+
+class ImuTrackingState(IntEnum):
+    STOPPED = 0
+    CALIBRATING = 1
+    TRACKING = 2
+    FAULT = 3
+    EXPIRED = 4
+
+
+class ImuTrackingFault(IntEnum):
+    NONE = 0
+    NOT_STATIONARY = 1
+    IMU_UNAVAILABLE = 2
+    STALE = 3
+    TIMESTAMP = 4
+    SATURATION = 5
+    BIAS_NOT_READY = 6
+    WINDOW_EXPIRED = 7
+    INHIBITED = 8
+    MOUNT_INVALID = 9
+
+
+class ImuTrackingFlag(IntEnum):
+    ESTIMATE_VALID = 1
+    BIAS_READY = 2
+    RESTART_REQUIRED = 4
+    MOUNT_CONFIRMED = 8
+
+
+class ImuTrackingVectorKind(IntEnum):
+    POSE = 0
+    TWIST = 1
+    BIAS = 2
+
+
+class FeedbackSource(IntEnum):
+    ENCODER = 0
+    IMU_ONLY = 1
+    FUSED = 2
+    NONE = 255
+
+
+class FeedbackSourceReason(IntEnum):
+    OK = 0
+    NOT_STARTED = 1
+    CALIBRATING = 2
+    UNAVAILABLE = 3
+    STALE = 4
+    EXPIRED = 5
+    FAULT = 6
+    INHIBITED = 7
+    WAITING_SAMPLE = 8
+    MOUNT_REQUIRED = 9
+
+
+class FeedbackSourceVectorKind(IntEnum):
+    POSE = 0
+    TWIST = 1
+
+
+class FeedbackSourceHealthState(IntEnum):
+    HEALTHY = 0
+    SUSPECT = 1
+    UNAVAILABLE = 2
+    INDETERMINATE = 3
+
+
+class FeedbackSourceHealthFlag(IntFlag):
+    PROVENANCE = 1
+    FRESH = 2
+    DISAGREEMENT = 4
+    COMPARISON_AVAILABLE = 8
+    RECOVERING = 16
+    RESTART_REQUIRED = 32
+    TIMESTAMP_FAULT = 64
+    SATURATION = 128
 
 
 EVENT_TOPICS = (6,)
@@ -858,8 +1510,8 @@ class KinisiCommands:
         motor_index: The index of the motor to initialize.
         is_reversed: Whether or not the motor is reversed.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, MOTOR_OWNED,
-        INIT_REQUIRED.
+        Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
+        MOTOR_OWNED, INIT_REQUIRED.
         """
         payload = struct.pack('<B?', motor_index, is_reversed)
         result = self._request(INITIALIZE_MOTOR, payload, 0)
@@ -873,8 +1525,8 @@ class KinisiCommands:
         motor_index: The index of the motor to set the speed for.
         pwm: The speed of the motor.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, MOTOR_OWNED,
-        MOTOR_NOT_INITIALIZED, INIT_REQUIRED.
+        Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
+        MOTOR_OWNED, MOTOR_NOT_INITIALIZED, INIT_REQUIRED.
         """
         payload = struct.pack('<Bd', motor_index, pwm)
         result = self._request(SET_MOTOR_SPEED, payload, 0)
@@ -909,7 +1561,8 @@ class KinisiCommands:
 
         motor_index: The index of the motor to set the speed for.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, MOTOR_OWNED.
+        Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
+        MOTOR_OWNED.
         """
         payload = struct.pack('<B', motor_index)
         result = self._request(BRAKE_MOTOR, payload, 0)
@@ -935,8 +1588,8 @@ class KinisiCommands:
         integral_limit: Maximum absolute integral contribution in PWM percentage points
         (0..100). Zero disables integral action.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, MOTOR_OWNED,
-        INIT_REQUIRED.
+        Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
+        MOTOR_OWNED, INIT_REQUIRED, ENCODER_NOT_INITIALIZED, SAMPLE_NOT_AVAILABLE.
         """
         if any(not math.isfinite(value) or value < 0 for value in (kp, ki, kd, integral_limit)) or integral_limit > 100:
             raise ValueError('Velocity gains must be finite and nonnegative; integral_limit must be 0..100 PWM percentage points')
@@ -952,8 +1605,9 @@ class KinisiCommands:
         motor_index: The index of the motor to set the target velocity for.
         speed: The speed of the motor.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, MOTOR_OWNED,
-        CONTROLLER_NOT_INITIALIZED, INIT_REQUIRED.
+        Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
+        MOTOR_OWNED, CONTROLLER_NOT_INITIALIZED, INIT_REQUIRED, ENCODER_NOT_INITIALIZED,
+        SAMPLE_NOT_AVAILABLE.
         """
         payload = struct.pack('<Bd', motor_index, speed)
         result = self._request(SET_MOTOR_TARGET_SPEED, payload, 0)
@@ -1190,7 +1844,7 @@ class KinisiCommands:
         """This command initializes a mecanum (4-wheel) platform and prepares it for use. It
         uses motor and encoder indices 0, 1, 2 and 3 (one per wheel), which correspond to
         the is_reversed_0..3 and is_encoder_reversed_0..3 parameters. All four motor slots
-        are occupied by this platform.
+        are occupied by this platform. Selects the STANDARD roller layout.
 
         is_reversed_0: Determines if motor 0 is reversed.
         is_reversed_1: Determines if motor 1 is reversed.
@@ -1214,7 +1868,8 @@ class KinisiCommands:
         encoder_resolution: Encoder resolution in ticks per revolution. The value can not be
         negative. If platform does not have encoders, the value should be set to zero.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED.
+        Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
+        INIT_REQUIRED.
         """
         payload = struct.pack('<????????dddd', is_reversed_0, is_reversed_1, is_reversed_2, is_reversed_3, is_encoder_reversed_0, is_encoder_reversed_1, is_encoder_reversed_2, is_encoder_reversed_3, length, width, wheels_diameter, encoder_resolution)
         result = self._request(INITIALIZE_MECANUM_PLATFORM, payload, 0)
@@ -1223,7 +1878,8 @@ class KinisiCommands:
         """This command initializes an omni (3-wheel) platform and prepares it for use. It uses
         motor and encoder indices 0, 1 and 2 (one per wheel), which correspond to the
         is_reversed_0..2 and is_encoder_reversed_0..2 parameters. Motor index 3 is not used
-        by this platform and stays free for other purposes.
+        by this platform and stays free for other purposes. Selects the single-rear-wheel
+        (REAR) orientation.
 
         is_reversed_0: Determines if motor 0 is reversed.
         is_reversed_1: Determines if motor 1 is reversed.
@@ -1237,13 +1893,13 @@ class KinisiCommands:
         is_encoder_reversed_2: Reverses encoder 2 counting direction, independently of motor
         2's is_reversed_2. Set so the closed-loop feedback is negative (flip if the wheel
         runs away when given a target speed).
-        wheels_diameter: Diameter of the robot wheels in millimeters.
-        robot_radius: Distance berween the center of the robot and the center of the wheels
-        in millimeters.
+        wheels_diameter: Diameter of the robot wheels in meters.
+        robot_radius: Distance from the robot center to each wheel center in meters.
         encoder_resolution: Encoder resolution in ticks per revolution. The value can not be
         negative. If platform does not have encoders, the value should be set to zero.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED.
+        Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
+        INIT_REQUIRED.
         """
         payload = struct.pack('<??????ddd', is_reversed_0, is_reversed_1, is_reversed_2, is_encoder_reversed_0, is_encoder_reversed_1, is_encoder_reversed_2, wheels_diameter, robot_radius, encoder_resolution)
         result = self._request(INITIALIZE_OMNI_PLATFORM, payload, 0)
@@ -1268,7 +1924,8 @@ class KinisiCommands:
         encoder_resolution: Encoder resolution in ticks per revolution. The value can not be
         negative. If platform does not have encoders, the value should be set to zero.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED.
+        Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
+        INIT_REQUIRED.
         """
         payload = struct.pack('<????ddd', is_reversed_0, is_reversed_1, is_encoder_reversed_0, is_encoder_reversed_1, wheel_diameter, wheel_base, encoder_resolution)
         result = self._request(INITIALIZE_DIFFERENTIAL_PLATFORM, payload, 0)
@@ -1281,7 +1938,7 @@ class KinisiCommands:
         y: Y component of platform velocity in PWM
         t: Theta component of platform velocity in PWM
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
+        Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
         PLATFORM_NOT_INITIALIZED, INIT_REQUIRED.
         """
         payload = struct.pack('<ddd', x, y, t)
@@ -1297,8 +1954,9 @@ class KinisiCommands:
         integral_limit: Maximum absolute integral contribution in PWM percentage points
         (0..100). Zero disables integral action.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
-        PLATFORM_NOT_INITIALIZED, INIT_REQUIRED.
+        Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
+        ENCODER_NOT_INITIALIZED, PLATFORM_NOT_INITIALIZED, INIT_REQUIRED,
+        SAMPLE_NOT_AVAILABLE.
         """
         if any(not math.isfinite(value) or value < 0 for value in (kp, ki, kd, integral_limit)) or integral_limit > 100:
             raise ValueError('Velocity gains must be finite and nonnegative; integral_limit must be 0..100 PWM percentage points')
@@ -1307,14 +1965,20 @@ class KinisiCommands:
 
     def set_platform_target_velocity(self, x: float, y: float, t: float) -> None:
         """This command set the target velocity for the platform in meters per second. Cancels
-        platform position control; initialize it again before another pose target.
+        platform position control; initialize it again before another pose target. With an
+        active fusion experiment, rejects invalid or stale feedback and targets fenced by an
+        earlier fault with SAMPLE_NOT_AVAILABLE; both experimental modes require 100 ms of
+        observed unchanged configured counters for initial rest arming. Once armed, ordinary
+        target updates remain accepted while moving. Wait for healthy feedback and submit a
+        fresh target; stopped cold configuration can ACK while still WAITING.
 
         x: X component of platform velocity in meters per second
         y: Y component of platform velocity in meters per second
         t: Theta component of platform velocity in radians per second
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
-        PLATFORM_NOT_INITIALIZED, CONTROLLER_NOT_INITIALIZED, INIT_REQUIRED.
+        Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
+        PLATFORM_NOT_INITIALIZED, CONTROLLER_NOT_INITIALIZED, INIT_REQUIRED,
+        SAMPLE_NOT_AVAILABLE, ENCODER_NOT_INITIALIZED.
         """
         payload = struct.pack('<ddd', x, y, t)
         result = self._request(SET_PLATFORM_TARGET_VELOCITY, payload, 0)
@@ -1340,7 +2004,7 @@ class KinisiCommands:
         """This command starts the odometry calculation for the platform.
 
         Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED,
-        CLOCK_NOT_READY, PLATFORM_NOT_INITIALIZED.
+        CLOCK_NOT_READY, ENCODER_NOT_INITIALIZED, PLATFORM_NOT_INITIALIZED.
         """
         payload = struct.pack('<')
         result = self._request(START_PLATFORM_ODOMETRY, payload, 0)
@@ -1378,7 +2042,7 @@ class KinisiCommands:
         does not regulate or hold a specific position. Call START_PLATFORM_CONTROLLER again
         to resume closed-loop platform control.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR.
+        Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR.
         """
         payload = struct.pack('<')
         result = self._request(BRAKE_PLATFORM, payload, 0)
@@ -1485,8 +2149,8 @@ class KinisiCommands:
         source: 0 through 3 select encoder odometry; 4 selects platform odometry.
         interval_ms: Delivery interval, independent of calculation scheduling.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED,
-        CLOCK_NOT_READY, ODOMETRY_NOT_INITIALIZED.
+        Controller errors: BOARD_IDLE, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
+        INIT_REQUIRED, CLOCK_NOT_READY, ODOMETRY_NOT_INITIALIZED.
         """
         payload = struct.pack('<BI', source, interval_ms)
         result = self._request(SUBSCRIBE_ODOMETRY, payload, 0)
@@ -1526,8 +2190,9 @@ class KinisiCommands:
         max_speed: Maximum commanded speed in radians per second; must be positive.
         tolerance: Position tolerance in radians; must be nonnegative.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED,
-        CONTROLLER_NOT_INITIALIZED, MOTOR_OWNED.
+        Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
+        INIT_REQUIRED, CONTROLLER_NOT_INITIALIZED, MOTOR_OWNED, ENCODER_NOT_INITIALIZED,
+        SAMPLE_NOT_AVAILABLE.
         """
         payload = struct.pack('<Bddd', motor_index, kp, max_speed, tolerance)
         result = self._request(INITIALIZE_MOTOR_POSITION_CONTROLLER, payload, 0)
@@ -1553,8 +2218,9 @@ class KinisiCommands:
         motor_index: Motor index.
         position: Absolute target in radians; not wrapped.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED,
-        CONTROLLER_NOT_INITIALIZED, MOTOR_OWNED.
+        Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
+        INIT_REQUIRED, CONTROLLER_NOT_INITIALIZED, MOTOR_OWNED, ENCODER_NOT_INITIALIZED,
+        SAMPLE_NOT_AVAILABLE.
         """
         payload = struct.pack('<Bd', motor_index, position)
         result = self._request(SET_MOTOR_POSITION, payload, 0)
@@ -1584,8 +2250,9 @@ class KinisiCommands:
         position_tolerance: Translation tolerance in meters; nonnegative.
         heading_tolerance: Heading tolerance in radians; nonnegative.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED,
-        CONTROLLER_NOT_INITIALIZED, PLATFORM_NOT_INITIALIZED, ENCODER_NOT_INITIALIZED.
+        Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
+        INIT_REQUIRED, CONTROLLER_NOT_INITIALIZED, PLATFORM_NOT_INITIALIZED,
+        ENCODER_NOT_INITIALIZED, SAMPLE_NOT_AVAILABLE.
         """
         payload = struct.pack('<dddddd', linear_kp, angular_kp, max_linear_speed, max_angular_speed, position_tolerance, heading_tolerance)
         result = self._request(INITIALIZE_PLATFORM_POSITION_CONTROLLER, payload, 0)
@@ -1610,9 +2277,9 @@ class KinisiCommands:
         y: World y position in meters.
         t: World heading in radians, positive counterclockwise.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED,
-        CONTROLLER_NOT_INITIALIZED, PLATFORM_NOT_INITIALIZED, ODOMETRY_NOT_INITIALIZED,
-        SAMPLE_NOT_AVAILABLE.
+        Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
+        INIT_REQUIRED, CONTROLLER_NOT_INITIALIZED, PLATFORM_NOT_INITIALIZED,
+        ODOMETRY_NOT_INITIALIZED, SAMPLE_NOT_AVAILABLE, ENCODER_NOT_INITIALIZED.
         """
         payload = struct.pack('<ddd', x, y, t)
         result = self._request(SET_PLATFORM_POSITION, payload, 0)
@@ -1633,8 +2300,9 @@ class KinisiCommands:
         kd: Derivative gain, dimensionless and nonnegative.
         integral_limit: Maximum absolute integral contribution (rad/s), nonnegative.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED,
-        CONTROLLER_NOT_INITIALIZED, MOTOR_OWNED.
+        Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
+        INIT_REQUIRED, CONTROLLER_NOT_INITIALIZED, MOTOR_OWNED, ENCODER_NOT_INITIALIZED,
+        SAMPLE_NOT_AVAILABLE.
         """
         payload = struct.pack('<Bdddddd', motor_index, kp, max_speed, tolerance, ki, kd, integral_limit)
         result = self._request(INITIALIZE_MOTOR_POSITION_PID_CONTROLLER, payload, 0)
@@ -1660,8 +2328,9 @@ class KinisiCommands:
         angular_kd: Heading derivative gain, dimensionless and nonnegative.
         angular_integral_limit: Heading integral contribution limit (rad/s), nonnegative.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR, INIT_REQUIRED,
-        CONTROLLER_NOT_INITIALIZED, PLATFORM_NOT_INITIALIZED, ENCODER_NOT_INITIALIZED.
+        Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
+        INIT_REQUIRED, CONTROLLER_NOT_INITIALIZED, PLATFORM_NOT_INITIALIZED,
+        ENCODER_NOT_INITIALIZED, SAMPLE_NOT_AVAILABLE.
         """
         payload = struct.pack('<dddddddddddd', linear_kp, angular_kp, max_linear_speed, max_angular_speed, position_tolerance, heading_tolerance, linear_ki, linear_kd, linear_integral_limit, angular_ki, angular_kd, angular_integral_limit)
         result = self._request(INITIALIZE_PLATFORM_POSITION_PID_CONTROLLER, payload, 0)
@@ -1677,9 +2346,9 @@ class KinisiCommands:
         firmware.
         interval_ms: Requested delivery interval in milliseconds; scheduling is best effort.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
-        ODOMETRY_NOT_INITIALIZED, SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, SUBSCRIPTION_LIMIT,
-        SAMPLE_OUT_OF_RANGE.
+        Controller errors: BOARD_IDLE, INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED,
+        CLOCK_NOT_READY, ODOMETRY_NOT_INITIALIZED, SENSOR_NOT_AVAILABLE, INTERNAL_ERROR,
+        SUBSCRIPTION_LIMIT, SAMPLE_OUT_OF_RANGE.
         """
         validate_topic(topic_id, index)
         if type(interval_ms) is not int or not TOPIC_DEFINITIONS[topic_id][2] <= interval_ms <= 3600000:
@@ -1714,9 +2383,9 @@ class KinisiCommands:
         interval_ms: Sampling interval in milliseconds; scheduling is best effort.
         mode: Subscription delivery mode.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
-        ODOMETRY_NOT_INITIALIZED, SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, SUBSCRIPTION_LIMIT,
-        SAMPLE_OUT_OF_RANGE.
+        Controller errors: BOARD_IDLE, INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED,
+        CLOCK_NOT_READY, ODOMETRY_NOT_INITIALIZED, SENSOR_NOT_AVAILABLE, INTERNAL_ERROR,
+        SUBSCRIPTION_LIMIT, SAMPLE_OUT_OF_RANGE.
         """
         validate_topic(topic_id, index)
         if type(interval_ms) is not int or not TOPIC_DEFINITIONS[topic_id][2] <= interval_ms <= 3600000:
@@ -1735,7 +2404,7 @@ class KinisiCommands:
 
         motor_index: Motor connector index.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED,
+        Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED,
         SENSOR_NOT_AVAILABLE, MOTOR_OWNED, MOTOR_NOT_INITIALIZED, INTERNAL_ERROR,
         CLOCK_NOT_READY.
         """
@@ -1751,8 +2420,8 @@ class KinisiCommands:
 
         motor_index: Motor connector index.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
-        MOTOR_NOT_INITIALIZED, SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
+        Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED,
+        CLOCK_NOT_READY, MOTOR_NOT_INITIALIZED, SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
         """
         if type(motor_index) is not int or not 0 <= motor_index <= 3:
             raise ValueError('motor_index must be an integer from 0 to 3')
@@ -1773,8 +2442,9 @@ class KinisiCommands:
         threshold_ma: Nominal regulation threshold in milliamps, selected from the board
         profile.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
-        MOTOR_NOT_INITIALIZED, SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, MOTOR_OWNED.
+        Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED,
+        CLOCK_NOT_READY, MOTOR_NOT_INITIALIZED, SENSOR_NOT_AVAILABLE, INTERNAL_ERROR,
+        MOTOR_OWNED.
         """
         if type(motor_index) is not int or not 0 <= motor_index <= 3:
             raise ValueError('motor_index must be an integer from 0 to 3')
@@ -1799,9 +2469,9 @@ class KinisiCommands:
         max_silence_ms: Fresh-sample refresh interval for ON_CHANGE; zero disables
         refreshes. Must meet the topic minimum.
 
-        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
-        ODOMETRY_NOT_INITIALIZED, SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, SUBSCRIPTION_LIMIT,
-        SAMPLE_OUT_OF_RANGE.
+        Controller errors: BOARD_IDLE, INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED,
+        CLOCK_NOT_READY, ODOMETRY_NOT_INITIALIZED, SENSOR_NOT_AVAILABLE, INTERNAL_ERROR,
+        SUBSCRIPTION_LIMIT, SAMPLE_OUT_OF_RANGE.
         """
         validate_topic(topic_id, index)
         if isinstance(trigger, bool) or not isinstance(trigger, int) or trigger not in tuple(SubscriptionTrigger) or isinstance(delivery, bool) or not isinstance(delivery, int) or delivery not in tuple(SubscriptionDelivery):
@@ -1828,7 +2498,8 @@ class KinisiCommands:
     def set_pwm_frequency(self, frequency_hz: int) -> int:
         """Stop all motors and motor/platform controllers, then set the board-wide PWM
         frequency. All motors remain stopped. The setting survives motor initialization and
-        connection changes; reboot restores the board default.
+        connection changes. At boot the board uses its default unless it restores an
+        explicitly saved v0.4 configuration.
 
         frequency_hz: PWM frequency selected from the board-supported enum values.
 
@@ -1840,4 +2511,676 @@ class KinisiCommands:
         payload = struct.pack('<I', frequency_hz)
         result = self._request(SET_PWM_FREQUENCY, payload, 4)
         return _unpack_payload('<I', result)[0]
+
+    def save_configuration(self) -> None:
+        """Save the complete running platform setup and motor PWM frequency to onboard FRAM.
+        Available on v0.4 with protocol 2.14 or later. ACK confirms a durable save. A
+        subsequent boot restores the setup with outputs stopped. Protocol 2.23+ also saves
+        the applied physical IMU mount and accepts an explicitly configured mount before
+        platform commissioning.
+
+        Controller errors: INVALID_LENGTH, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, PLATFORM_NOT_INITIALIZED, INVALID_ARGUMENT, INTERNAL_ERROR.
+        """
+        payload = struct.pack('<')
+        result = self._request(SAVE_CONFIGURATION, payload, 0)
+
+    def get_configuration_field(self, field: int, index: int) -> float:
+        """Read a running configuration field. Fields 0 through 6 require v0.4. Field 7 is
+        available on all boards with protocol 2.25 and a configured mecanum platform. Field
+        8 is available on all boards with protocol 2.26 and a configured Omni platform. Use
+        GET_PWM_FREQUENCY for the board-wide switching frequency.
+
+        field: 0 platform type (0 unconfigured, 1 differential, 2 omni, 3 mecanum), 1 wheel
+        diameter, 2 track or length, 3 width or radius, 4 encoder resolution, 5 encoder
+        reversed, 6 motor reversed, 7 mecanum roller orientation (0 STANDARD, 1 MIRRORED), 8
+        Omni single-wheel orientation (0 REAR, 1 FRONT).
+        index: Zero for platform fields. For fields 4 through 6, use the zero-based channel
+        index.
+
+        Controller errors: INVALID_LENGTH, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INVALID_ARGUMENT, PLATFORM_NOT_INITIALIZED.
+        """
+        payload = struct.pack('<BB', field, index)
+        result = self._request(GET_CONFIGURATION_FIELD, payload, 8)
+        return _unpack_payload('<d', result)[0]
+
+    def set_driver_sleep(self, sleeping: int) -> None:
+        """Set the board-wide motor inhibit. Entry stops all controllers and blocks new motion.
+        On v0.3 and Nano (protocol 2.17), entry holds each DRV8870 input pair low. Release
+        keeps the inputs low until a fresh drive or explicit short brake. On v0.4 (protocol
+        2.15+), wake verifies retained settings for initialized drivers and leaves outputs
+        stopped. Failed transitions retain the inhibit for explicit retry. Requires READY
+        and a profile supporting driver sleep.
+
+        sleeping: 1 to request driver sleep or 0 to wake.
+
+        Controller errors: DRIVERS_ASLEEP, BOARD_IDLE, INVALID_LENGTH, INVALID_ARGUMENT,
+        INIT_REQUIRED, CLOCK_NOT_READY, SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
+        """
+        if type(sleeping) is not int or sleeping not in (0, 1):
+            raise ValueError('sleeping must be integer 0 or 1')
+        payload = struct.pack('<B', sleeping)
+        result = self._request(SET_DRIVER_SLEEP, payload, 0)
+
+    def get_driver_sleep(self) -> int:
+        """Read the software motor inhibit across connections. It clears at boot. A zero
+        permits commands and does not establish that each chip is awake. Requires READY and
+        driver sleep support (v0.4 since protocol 2.15, original v0.3 and Nano since 2.17).
+
+        Controller errors: INVALID_LENGTH, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE.
+        """
+        payload = struct.pack('<')
+        result = self._request(GET_DRIVER_SLEEP, payload, 1)
+        sleeping = _unpack_payload('<B', result)[0]
+        if sleeping not in (0, 1):
+            raise ValueError('Invalid driver sleep state')
+        return sleeping
+
+    def set_board_idle(self, idle: int) -> None:
+        """Set communication-preserving board idle. Entry (1) stops control, inhibits the
+        drivers and permits shallow CPU sleep between tasks. USB traffic, time sync, queries
+        and heartbeat keep using the existing session. Only explicit exit (0) clears idle.
+        Exit preserves a prior independent driver inhibit and leaves outputs stopped. On
+        original v0.3 and Nano both DRV8870 inputs stay low until fresh drive or brake. On
+        v0.4, previously active drivers are verified before release. A failed transition
+        retains idle and inhibit for explicit retry. Requires READY, an idle-capable profile
+        and protocol 2.18 on v0.3 or Nano, or 2.16 on v0.4.
+
+        idle: 1 to enter board idle or 0 to wake the board.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, BOARD_IDLE.
+        """
+        if type(idle) is not int or idle not in (0, 1):
+            raise ValueError('idle must be integer 0 or 1')
+        payload = struct.pack('<B', idle)
+        result = self._request(SET_BOARD_IDLE, payload, 0)
+
+    def get_board_idle(self) -> int:
+        """Read the shared logical idle request without clearing it. Interrupts can resume the
+        CPU while this request remains set. GET_DRIVER_SLEEP reports the effective driver
+        inhibit. Idle survives reconnect and clears at reset. Requires READY and board idle
+        support (original v0.3 and Nano since protocol 2.18, v0.4 since 2.16).
+
+        Controller errors: INVALID_LENGTH, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE.
+        """
+        payload = struct.pack('<')
+        result = self._request(GET_BOARD_IDLE, payload, 1)
+        idle = _unpack_payload('<B', result)[0]
+        if idle not in (0, 1):
+            raise ValueError('Invalid board idle state')
+        return idle
+
+    def set_fusion_experiment(self, mode: int, mounting_yaw_rad: float) -> None:
+        """Configure the volatile v0.4 experiment only while motion is stopped and all
+        commanded targets and motor outputs are zero; initialized controllers with idle zero
+        targets are allowed. Mode 0 retains the legacy encoder path (boot default), 1 uses
+        encoder feedback with the common chassis correction, and 2 uses fused feedback with
+        that same correction. No IMU-only mode. Without a configured physical mount, modes
+        1/2 require a rigid, level board with component side up, IMU at the chassis
+        reference point, and mounting_yaw_rad as the angle of board +X expressed in chassis
+        XY, counterclockwise about chassis +Z. Sensor-to-board axes are (-x,-y,+z); chassis
+        axes are forward/left/up. Reject nonfinite or out-of-range yaw, any observed
+        configured encoder movement in the preceding 100 ms, or a counter change since a
+        fresh sample. Stopped cold setup may ACK in WAITING; ACK does not establish
+        readiness. Both experimental modes require 100 ms of observed unchanged configured
+        counters for initial rest arming before accepting a motion target; once armed,
+        ordinary target updates remain accepted while moving; fused bias calibration may run
+        within that window. Reconfiguration cancels old targets. Sources may requalify
+        automatically after an ordinary sensor fault, but healthy inputs and a fresh target
+        are required before control resumes. Does not save to FRAM or start motion. Requires
+        READY, exact v0.4.0 fusion capability and protocol 2.19. On protocol 2.23+, a
+        configured physical mount takes precedence over legacy yaw. Use GET_BOARD_MOUNT on
+        2.24+ for PCB underside-center geometry. On 2.23 use GET_IMU_MOUNT for
+        chip-reference geometry.
+
+        mode: FusionMode value.
+        mounting_yaw_rad: Legacy board yaw in radians for a centered, level installation. A
+        configured physical mount takes precedence.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, BOARD_IDLE, DRIVERS_ASLEEP,
+        PLATFORM_NOT_INITIALIZED.
+        """
+        if isinstance(mode, bool) or not isinstance(mode, int) or mode not in (0, 1, 2):
+            raise ValueError('Invalid fusion experiment mode')
+        if isinstance(mounting_yaw_rad, bool) or not isinstance(mounting_yaw_rad, (int, float)) or not math.isfinite(mounting_yaw_rad) or abs(mounting_yaw_rad) > math.pi:
+            raise ValueError('Mounting yaw must be finite radians within [-pi, pi]')
+        payload = struct.pack('<Bd', mode, mounting_yaw_rad)
+        result = self._request(SET_FUSION_EXPERIMENT, payload, 0)
+
+    def get_fusion_status(self) -> FusionStatus:
+        """Read experiment mode, health, fault, flags and timestamped sample ages without
+        setting targets or changing configuration. A read may enforce an expired feedback
+        deadline, clear the live target and coast. Health/fault/flag values use the
+        FusionHealth/FusionFault/FusionFlag catalogs. Timestamp uses the monotonic board
+        clock; unavailable ages are UINT32_MAX. The physical IMU producer waits 2 ms between
+        passes, without guaranteeing a 2 ms acquisition cadence, and pairs only acquisition
+        windows entirely preceding the encoder timestamp: each window is at most 5 ms wide,
+        worst-case accel/gyro skew at most 15 ms, and age at most 35 ms. These are software
+        acceptance limits, not a physical timing qualification. ESTIMATE_VALID describes the
+        selected experiment estimate, not physical accuracy. Requires READY, exact v0.4.0
+        fusion capability and protocol 2.19.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
+        """
+        payload = struct.pack('<')
+        result = self._request(GET_FUSION_STATUS, payload, FusionStatus.get_size())
+        sample = FusionStatus.decode(result)
+        if sample.mode > 2 or sample.health > 3 or sample.fault > 9 or sample.flags > 15:
+            raise ValueError('Invalid fusion status')
+        return sample
+
+    def get_fusion_vector(self, kind: int) -> FusionVector:
+        """Read one compact experiment vector: 0 encoder pose (relative x,y,yaw), 1 encoder
+        body twist (vx,vy,yaw rate), 2 fused pose, 3 fused body twist, 4 estimated bias
+        (ax,ay,gyro z). Units are metres, seconds and radians. On outage recovery, the last
+        fused-from-encoder world transform is reapplied to the current encoder pose. Returns
+        SAMPLE_NOT_AVAILABLE when the requested estimate is invalid. Match sequence with
+        GET_FUSION_STATUS to associate timestamp/health; different sequences are different
+        snapshots. At most 28 payload bytes so the framed reply fits Arduino Wire32. Does
+        not reset state or start motion. Requires READY, exact v0.4.0 fusion capability and
+        protocol 2.19.
+
+        kind: FusionVectorKind value.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, SAMPLE_NOT_AVAILABLE.
+        """
+        if isinstance(kind, bool) or not isinstance(kind, int) or not 0 <= kind <= 4:
+            raise ValueError('Invalid fusion vector kind')
+        payload = struct.pack('<B', kind)
+        result = self._request(GET_FUSION_VECTOR, payload, FusionVector.get_size())
+        sample = FusionVector.decode(result)
+        if not all(math.isfinite(value) for value in (sample.x, sample.y, sample.z)):
+            raise ValueError('Invalid fusion vector')
+        return sample
+
+    def get_fusion_configuration(self) -> FusionConfiguration:
+        """Read the volatile experiment mode and declared mounting yaw without changing state.
+        Reset selects legacy encoder mode; SAVE_CONFIGURATION does not persist this
+        experiment. Requires READY, exact v0.4.0 fusion capability and protocol 2.19. On
+        protocol 2.23+, a configured physical mount takes precedence over legacy yaw. Use
+        GET_BOARD_MOUNT on 2.24+ for PCB underside-center geometry. On 2.23 use
+        GET_IMU_MOUNT for chip-reference geometry.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
+        """
+        payload = struct.pack('<')
+        result = self._request(GET_FUSION_CONFIGURATION, payload, FusionConfiguration.get_size())
+        sample = FusionConfiguration.decode(result)
+        if sample.mode > 2 or not math.isfinite(sample.mounting_yaw_rad) or abs(sample.mounting_yaw_rad) > math.pi:
+            raise ValueError('Invalid fusion configuration')
+        return sample
+
+    def set_imu_tracking(self, action: int, stationary_mount_confirmed: int, mounting_yaw_rad: float) -> None:
+        """Control volatile IMU-only relative tracking. START=0, RESET=2 and RECALIBRATE=3 are
+        accepted from any state with stationary_mount_confirmed=1 and finite yaw in
+        [-pi,pi]; all discard prior bias and pose and begin full cold stationary calibration
+        at a new relative origin. The caller confirms true zero velocity and the actual
+        rigid installation. Without a configured physical mount, use a level sensor with +Z
+        up at the tracking origin. Legacy yaw is the angle of sensor +X in chassis XY,
+        counterclockwise about chassis +Z. The legacy sensor-to-chassis transform is
+        Rz(yaw)*(x,y,z), axes forward/left/up. IMU stationarity checks cannot establish zero
+        constant velocity. STOP=1 requires confirmation=0 and yaw=0 and stops integration.
+        ACK confirms the action, not a valid estimate. Fault, expiry or interruption
+        requires deliberate restart; no automatic recovery. Not saved to FRAM. Requires
+        READY, exact model 1 hardware 0.4.0 with imu_tracking capability and protocol 2.20+.
+        Independent of platform, encoders and fusion; never commands motion or changes
+        control feedback. On protocol 2.23+, a configured physical mount takes precedence
+        over legacy yaw. Use GET_BOARD_MOUNT on 2.24+ for PCB underside-center geometry. On
+        2.23 use GET_IMU_MOUNT for chip-reference geometry.
+
+        action: ImuTrackingAction value.
+        stationary_mount_confirmed: Explicit caller confirmation of zero velocity and the
+        declared rigid installation, 0 or 1.
+        mounting_yaw_rad: Legacy sensor +X yaw about chassis +Z in finite radians for a
+        level sensor. A configured physical mount takes precedence.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, BOARD_IDLE, DRIVERS_ASLEEP.
+        """
+        if isinstance(action, bool) or not isinstance(action, int) or not 0 <= action <= 3 or type(stationary_mount_confirmed) is not int or stationary_mount_confirmed not in (0, 1):
+            raise ValueError('Invalid IMU tracking action or confirmation')
+        if isinstance(mounting_yaw_rad, bool) or not isinstance(mounting_yaw_rad, (int, float)) or not math.isfinite(mounting_yaw_rad) or abs(mounting_yaw_rad) > math.pi or (action == 1 and (stationary_mount_confirmed != 0 or mounting_yaw_rad != 0)) or (action != 1 and stationary_mount_confirmed != 1):
+            raise ValueError('Invalid IMU tracking mounting declaration')
+        payload = struct.pack('<BBd', action, stationary_mount_confirmed, mounting_yaw_rad)
+        result = self._request(SET_IMU_TRACKING, payload, 0)
+
+    def get_imu_tracking_status(self) -> ImuTrackingStatus:
+        """Read IMU-only tracking state, fault, flags, sequence, last eligible joint
+        sample-watermark timestamp, wall elapsed time since the source origin capped at
+        window_us and separate accel/gyro ages in microseconds. UINT32_MAX age means
+        unavailable. ESTIMATE_VALID is required for usable current estimates; timestamp and
+        health are not physical accuracy guarantees. A delayed in-window source sample may
+        remain readable briefly after the wall clock reaches the source end. Healthy
+        tracking expires upon the first consumed source watermark at or beyond the end, or
+        by the first serviced status/vector/configuration read at or after end + 50000 us.
+        Missing, stale or invalid input may fault earlier. This is a serviced-read
+        guarantee, not a hard real-time scheduling guarantee. Reads never start tracking.
+        Status and vector sequences must match to combine separate reads. Requires READY,
+        exact model 1 hardware 0.4.0 with imu_tracking capability and protocol 2.20+.
+        Independent of platform, encoders and fusion; never commands motion or changes
+        control feedback.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
+        """
+        payload = struct.pack('<')
+        result = self._request(GET_IMU_TRACKING_STATUS, payload, ImuTrackingStatus.get_size())
+        sample = ImuTrackingStatus.decode(result)
+        if sample.state > 4 or sample.fault > 9 or sample.flags > 15 or sample.reserved != 0:
+            raise ValueError('Invalid IMU tracking status')
+        return sample
+
+    def get_imu_tracking_vector(self, kind: int) -> ImuTrackingVector:
+        """Read a compact IMU-only vector selected by kind: POSE=0 (relative
+        metres,metres,radians), TWIST=1 (body metres/second,metres/second,radians/second),
+        BIAS=2 (accel-X,accel-Y metres/second squared and gyro-Z radians/second).
+        SAMPLE_NOT_AVAILABLE means the requested estimate is invalid. Match sequence with
+        GET_IMU_TRACKING_STATUS; never combine mismatched snapshots. Relative integration
+        drifts and has no absolute position or heading reference. Requires READY, exact
+        model 1 hardware 0.4.0 with imu_tracking capability and protocol 2.20+. Independent
+        of platform, encoders and fusion; never commands motion or changes control feedback.
+
+        kind: ImuTrackingVectorKind value.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, SAMPLE_NOT_AVAILABLE.
+        """
+        if isinstance(kind, bool) or not isinstance(kind, int) or not 0 <= kind <= 2:
+            raise ValueError('Invalid IMU tracking vector kind')
+        payload = struct.pack('<B', kind)
+        result = self._request(GET_IMU_TRACKING_VECTOR, payload, ImuTrackingVector.get_size())
+        sample = ImuTrackingVector.decode(result)
+        if not all(math.isfinite(value) for value in (sample.x, sample.y, sample.z)):
+            raise ValueError('Invalid IMU tracking vector')
+        return sample
+
+    def get_imu_tracking_configuration(self) -> ImuTrackingConfiguration:
+        """Read mounting yaw and the actual bounded tracking horizon in microseconds. This v0.4
+        release reports 1000000 us for a one-second motion-onset diagnostic. Always use
+        readback for the connected board horizon. The eligible source interval is [origin,
+        origin + window_us); at 100 Hz it contains 100 source stamps including origin and
+        excluding the end. No estimate at or beyond the source end is published. Reset
+        clears volatile tracking state; reconnect does not start or re-anchor tracking.
+        Requires READY, exact model 1 hardware 0.4.0 with imu_tracking capability and
+        protocol 2.20+. Independent of platform, encoders and fusion; never commands motion
+        or changes control feedback. On protocol 2.23+, a configured physical mount takes
+        precedence over legacy yaw. Use GET_BOARD_MOUNT on 2.24+ for PCB underside-center
+        geometry. On 2.23 use GET_IMU_MOUNT for chip-reference geometry.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
+        """
+        payload = struct.pack('<')
+        result = self._request(GET_IMU_TRACKING_CONFIGURATION, payload, ImuTrackingConfiguration.get_size())
+        sample = ImuTrackingConfiguration.decode(result)
+        if not math.isfinite(sample.mounting_yaw_rad) or abs(sample.mounting_yaw_rad) > math.pi or sample.window_us == 0:
+            raise ValueError('Invalid IMU tracking configuration')
+        return sample
+
+    def set_feedback_source(self, source: int) -> None:
+        """Choose the board-wide telemetry preference. A change requires stopped outputs,
+        disarmed controllers and stationary observed encoders. An unchanged preference is
+        idempotent. The selector never starts motion, wheel odometry, standalone IMU
+        calibration or a controller. FUSED uses an independent passive instance of the
+        release estimator when its explicit mount and encoder odometry are available. It
+        anchors a new relative frame at the first available source sample serviced after a
+        switch or producer restart. The existing SAVE_CONFIGURATION explicitly persists the
+        preference alongside platform setup; cold restore never restores an origin, bias,
+        stationary declaration or motion target. Requires READY and exact model 1 hardware
+        0.4.0 with feedback_source_selector and protocol 2.21 or newer. Selection only
+        routes tracking telemetry.
+
+        source: FeedbackSource value (NONE is read-only).
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, SOURCE_SWITCH_UNSAFE.
+        """
+        if isinstance(source, bool) or not isinstance(source, int) or source not in (0, 1, 2):
+            raise ValueError('Invalid feedback source')
+        payload = struct.pack('<B', source)
+        result = self._request(SET_FEEDBACK_SOURCE, payload, 0)
+
+    def get_feedback_source_status(self) -> FeedbackSourceStatus:
+        """Get requested and active source, availability reason and producer detail. Invalid
+        status reports active NONE; no fallback. While valid the sample sequence and
+        monotonic timestamp identify the underlying producer publication. Inspect requested
+        source diagnostics for acquisition ages and fault detail. The standalone IMU is a
+        one-second relative motion-onset diagnostic; fused telemetry uses the existing
+        experimental estimator. Reconnect reads live board state. Requires READY and exact
+        model 1 hardware 0.4.0 with feedback_source_selector and protocol 2.21 or newer.
+        Selection only routes tracking telemetry.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
+        """
+        payload = struct.pack('<')
+        result = self._request(GET_FEEDBACK_SOURCE_STATUS, payload, FeedbackSourceStatus.get_size())
+        sample = FeedbackSourceStatus.decode(result)
+        if (sample.requested > 2 or sample.valid > 1 or sample.reason > 9 or (sample.valid and (sample.active != sample.requested or sample.reason != 0 or not sample.max_age_ms or sample.age_us > 1000 * sample.max_age_ms)) or (not sample.valid and (sample.active != 255 or sample.reason == 0 or sample.sequence != 0 or sample.timestamp_us != 0 or sample.age_us != 0xffffffff))):
+            raise ValueError('Invalid feedback source status')
+        return sample
+
+    def get_feedback_source_vector(self, kind: int, origin_id: int, sequence: int) -> FeedbackSourceVector:
+        """Get selector-relative pose (metres, metres, unwrapped radians) or body twist
+        (metres/second, metres/second, radians/second), +X forward, +Y left, yaw CCW.
+        Relative XY is rotated into the heading at the new anchor. First capture a valid
+        status, then request both vectors with its exact origin_id and sequence. Eight
+        distinct recent captures are retained for at most 50000 us after capture. Both keys
+        and the current healthy source/frame must match. Selected historical sample age
+        cannot exceed 50000 us for IMU-only, 60000 us for fused, or three configured encoder
+        periods. Expiry or invalidation immediately rejects cached data. A final live status
+        may naturally advance sequence and time; require the same valid requested/active
+        source and origin, match both vector sequences to the original capture and retry on
+        SAMPLE_NOT_AVAILABLE. Compare origins only within the same boot. Requires READY and
+        exact model 1 hardware 0.4.0 with feedback_source_selector and protocol 2.21 or
+        newer. Selection only routes tracking telemetry.
+
+        kind: FeedbackSourceVectorKind value.
+        origin_id: Frame generation captured by GET_FEEDBACK_SOURCE_STATUS.
+        sequence: Exact source sample sequence captured by GET_FEEDBACK_SOURCE_STATUS.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, SAMPLE_NOT_AVAILABLE.
+        """
+        if isinstance(kind, bool) or not isinstance(kind, int) or kind not in (0, 1):
+            raise ValueError('Invalid feedback vector kind')
+        if any(type(value) is not int or not 0 <= value <= 0xffffffff for value in (origin_id, sequence)):
+            raise ValueError('Invalid feedback sample key')
+        payload = struct.pack('<BII', kind, origin_id, sequence)
+        result = self._request(GET_FEEDBACK_SOURCE_VECTOR, payload, FeedbackSourceVector.get_size())
+        sample = FeedbackSourceVector.decode(result)
+        if not all(math.isfinite(value) for value in (sample.x, sample.y, sample.z)):
+            raise ValueError('Invalid feedback vector')
+        return sample
+
+    def set_feedback_fusion_mount(self, mounting_yaw_rad: float) -> None:
+        """Declare the legacy centered, level board orientation for passive fused telemetry,
+        with finite board yaw in [-pi,pi]. Requires stopped outputs and disarmed
+        controllers. Each successful command discards prior passive calibration and pose;
+        the observer requires fresh stationary observations. This volatile setting applies
+        only to passive telemetry. Requires READY, exact v0.4 and protocol 2.21+. On
+        protocol 2.23+, a configured physical mount takes precedence over legacy yaw. Use
+        GET_BOARD_MOUNT on 2.24+ for PCB underside-center geometry. On 2.23 use
+        GET_IMU_MOUNT for chip-reference geometry.
+
+        mounting_yaw_rad: Legacy yaw of board +X in chassis XY, counterclockwise about +Z in
+        radians. Centered and level applies only to a yaw-only installation.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, SOURCE_SWITCH_UNSAFE.
+        """
+        if isinstance(mounting_yaw_rad, bool) or not isinstance(mounting_yaw_rad, (float, int)) or not math.isfinite(mounting_yaw_rad) or abs(mounting_yaw_rad) > math.pi:
+            raise ValueError('Invalid feedback fusion mounting yaw')
+        payload = struct.pack('<d', mounting_yaw_rad)
+        result = self._request(SET_FEEDBACK_FUSION_MOUNT, payload, 0)
+
+    def get_feedback_fusion_mount(self) -> FeedbackFusionMount:
+        """Read the explicit volatile passive fusion mounting confirmation and board yaw. Reset
+        clears confirmation. Requires READY, exact v0.4 and protocol 2.21+. On protocol
+        2.23+, a configured physical mount takes precedence over legacy yaw. Use
+        GET_BOARD_MOUNT on 2.24+ for PCB underside-center geometry. On 2.23 use
+        GET_IMU_MOUNT for chip-reference geometry.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
+        """
+        payload = struct.pack('<')
+        result = self._request(GET_FEEDBACK_FUSION_MOUNT, payload, FeedbackFusionMount.get_size())
+        sample = FeedbackFusionMount.decode(result)
+        if sample.confirmed > 1 or not math.isfinite(sample.mounting_yaw_rad) or abs(sample.mounting_yaw_rad) > math.pi:
+            raise ValueError('Invalid feedback fusion mount')
+        return sample
+
+    def get_feedback_source_health(self, source: int) -> FeedbackSourceHealth:
+        """Read producer health independently of selector and control. ENCODER is the running
+        platform encoder batch, IMU_ONLY is physical BMI088 pair availability independent of
+        the one-second estimate, FUSED is the passive fused estimate. Disagreement indicates
+        conflicting observations without assigning sensor blame. HEALTHY means directly
+        usable data. Comparability is separate. Historical provenance remains readable
+        during failure. Reconnect reads board state. Requires READY, exact v0.4 and protocol
+        2.22+ with feedback_source_health.
+
+        source: FeedbackSource value, excluding NONE.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
+        """
+        if isinstance(source, bool) or not isinstance(source, int) or source not in (0, 1, 2):
+            raise ValueError('Invalid feedback source')
+        payload = struct.pack('<B', source)
+        result = self._request(GET_FEEDBACK_SOURCE_HEALTH, payload, FeedbackSourceHealth.get_size())
+        sample = FeedbackSourceHealth.decode(result)
+        if sample.source != source or sample.health not in tuple(FeedbackSourceHealthState) or sample.reason not in tuple(FeedbackSourceReason) or sample.detail not in tuple(FusionFault):
+            raise ValueError('Invalid feedback source health')
+        return sample
+
+    def get_feedback_imu_channels(self) -> FeedbackImuChannels:
+        """Read independent last observed accelerometer and gyro acquisition times in board
+        uptime microseconds. A timestamp of zero and age UINT32_MAX indicate no observed
+        acquisition. These are physical source observations, independent of the finite
+        IMU-only tracking window. A pair must meet the 35000 us age and 15000 us skew
+        limits. Requires READY, exact v0.4 and protocol 2.22+ with feedback_source_health.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
+        """
+        payload = struct.pack('<')
+        result = self._request(GET_FEEDBACK_IMU_CHANNELS, payload, FeedbackImuChannels.get_size())
+        sample = FeedbackImuChannels.decode(result)
+        if ((sample.accel_timestamp_us == 0 and sample.accel_age_us != 0xffffffff) or
+                (sample.gyro_timestamp_us == 0 and sample.gyro_age_us != 0xffffffff)):
+            raise ValueError('Invalid feedback IMU channel provenance')
+        return sample
+
+    def set_imu_mount(self, roll_cdeg: int, pitch_cdeg: int, yaw_cdeg: int, x_um: int, y_um: int, z_um: int) -> None:
+        """Legacy chip-reference API, deprecated for new installations. Set the complete rigid
+        mount for IMU-only and fused tracking on a stopped, disarmed v0.4. The
+        board-to-chassis rotation is Rz(yaw) Ry(pitch) Rx(roll). A changed mount requires
+        fresh tracking initialization. SAVE_CONFIGURATION persists this geometry. Requires
+        READY and protocol 2.23+ with imu_mounting. XYZ refers to the BMI088 chip. Use
+        SET_BOARD_MOUNT for the PCB underside center.
+
+        roll_cdeg: Board-to-chassis roll in signed hundredths of a degree.
+        pitch_cdeg: Board-to-chassis pitch in signed hundredths of a degree.
+        yaw_cdeg: Board-to-chassis yaw in signed hundredths of a degree.
+        x_um: Signed displacement from the tracking origin to the BMI088 chip along chassis
+        +X (forward), in micrometres.
+        y_um: Signed displacement from the tracking origin to the BMI088 chip along chassis
+        +Y (left), in micrometres.
+        z_um: Signed displacement from the tracking origin to the BMI088 chip along chassis
+        +Z (up), in micrometres.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, SOURCE_SWITCH_UNSAFE.
+        """
+        if type(roll_cdeg) is not int or not -18000 <= roll_cdeg <= 18000:
+            raise ValueError('Invalid roll_cdeg')
+        if type(pitch_cdeg) is not int or not -9000 <= pitch_cdeg <= 9000:
+            raise ValueError('Invalid pitch_cdeg')
+        if type(yaw_cdeg) is not int or not -18000 <= yaw_cdeg <= 18000:
+            raise ValueError('Invalid yaw_cdeg')
+        if type(x_um) is not int or not -10000000 <= x_um <= 10000000:
+            raise ValueError('Invalid x_um')
+        if type(y_um) is not int or not -10000000 <= y_um <= 10000000:
+            raise ValueError('Invalid y_um')
+        if type(z_um) is not int or not -10000000 <= z_um <= 10000000:
+            raise ValueError('Invalid z_um')
+        payload = struct.pack('<hhhiii', roll_cdeg, pitch_cdeg, yaw_cdeg, x_um, y_um, z_um)
+        result = self._request(SET_IMU_MOUNT, payload, 0)
+
+    def get_imu_mount(self) -> ImuMountConfiguration:
+        """Legacy chip-reference API, deprecated for new installations. Read the shared
+        physical mount. When configured is false, IMU-only uses its legacy sensor yaw and
+        fusion its legacy board yaw. Requires READY and protocol 2.23+ with imu_mounting.
+        XYZ is the BMI088 chip position, including when derived from a PCB underside-center
+        installation.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
+        """
+        payload = struct.pack('<')
+        result = self._request(GET_IMU_MOUNT, payload, ImuMountConfiguration.get_size())
+        sample = ImuMountConfiguration.decode(result)
+        if result[-1] > 1:
+            raise ValueError('Invalid IMU mount configured flag')
+        if not -18000 <= sample.roll_cdeg <= 18000:
+            raise ValueError('Invalid roll_cdeg')
+        if not -9000 <= sample.pitch_cdeg <= 9000:
+            raise ValueError('Invalid pitch_cdeg')
+        if not -18000 <= sample.yaw_cdeg <= 18000:
+            raise ValueError('Invalid yaw_cdeg')
+        if not -10031098 <= sample.x_um <= 10031098:
+            raise ValueError('Invalid x_um')
+        if not -10031098 <= sample.y_um <= 10031098:
+            raise ValueError('Invalid y_um')
+        if not -10031098 <= sample.z_um <= 10031098:
+            raise ValueError('Invalid z_um')
+        return sample
+
+    def set_board_mount(self, roll_cdeg: int, pitch_cdeg: int, yaw_cdeg: int, x_um: int, y_um: int, z_um: int) -> None:
+        """Set the rigid mount on a stopped, disarmed Mini. XYZ is the displacement in chassis
+        axes from the tracking origin to the geometric center of the PCB underside.
+        Board-to-chassis rotation is Rz(yaw) Ry(pitch) Rx(roll). Firmware derives the chip
+        offset. SAVE_CONFIGURATION persists the entered board pose. Requires READY, exact
+        v0.4 imu_mounting and protocol 2.24+.
+
+        roll_cdeg: Board-to-chassis roll in signed hundredths of a degree.
+        pitch_cdeg: Board-to-chassis pitch in signed hundredths of a degree.
+        yaw_cdeg: Board-to-chassis yaw in signed hundredths of a degree.
+        x_um: Signed displacement from the tracking origin to the geometric center of the
+        PCB underside along chassis +X (forward), in micrometres.
+        y_um: Signed displacement from the tracking origin to the geometric center of the
+        PCB underside along chassis +Y (left), in micrometres.
+        z_um: Signed displacement from the tracking origin to the geometric center of the
+        PCB underside along chassis +Z (up), in micrometres.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR, SOURCE_SWITCH_UNSAFE.
+        """
+        if type(roll_cdeg) is not int or not -18000 <= roll_cdeg <= 18000:
+            raise ValueError('Invalid roll_cdeg')
+        if type(pitch_cdeg) is not int or not -9000 <= pitch_cdeg <= 9000:
+            raise ValueError('Invalid pitch_cdeg')
+        if type(yaw_cdeg) is not int or not -18000 <= yaw_cdeg <= 18000:
+            raise ValueError('Invalid yaw_cdeg')
+        if type(x_um) is not int or not -10000000 <= x_um <= 10000000:
+            raise ValueError('Invalid x_um')
+        if type(y_um) is not int or not -10000000 <= y_um <= 10000000:
+            raise ValueError('Invalid y_um')
+        if type(z_um) is not int or not -10000000 <= z_um <= 10000000:
+            raise ValueError('Invalid z_um')
+        payload = struct.pack('<hhhiii', roll_cdeg, pitch_cdeg, yaw_cdeg, x_um, y_um, z_um)
+        result = self._request(SET_BOARD_MOUNT, payload, 0)
+
+    def get_board_mount(self) -> BoardMountConfiguration:
+        """Read the applied board orientation and geometric PCB underside center in chassis
+        coordinates. Legacy chip mounts are converted. When unconfigured all coordinates and
+        angles are zero. Requires READY, exact v0.4 imu_mounting and protocol 2.24+.
+
+        Controller errors: INVALID_LENGTH, INVALID_ARGUMENT, INIT_REQUIRED, CLOCK_NOT_READY,
+        SENSOR_NOT_AVAILABLE, INTERNAL_ERROR.
+        """
+        payload = struct.pack('<')
+        result = self._request(GET_BOARD_MOUNT, payload, BoardMountConfiguration.get_size())
+        sample = BoardMountConfiguration.decode(result)
+        if result[-1] > 1:
+            raise ValueError('Invalid IMU mount configured flag')
+        if not sample.configured and any(result[:-1]):
+            raise ValueError('Unexpected unconfigured board pose')
+        if not -18000 <= sample.roll_cdeg <= 18000:
+            raise ValueError('Invalid roll_cdeg')
+        if not -9000 <= sample.pitch_cdeg <= 9000:
+            raise ValueError('Invalid pitch_cdeg')
+        if not -18000 <= sample.yaw_cdeg <= 18000:
+            raise ValueError('Invalid yaw_cdeg')
+        if not -10031098 <= sample.x_um <= 10031098:
+            raise ValueError('Invalid x_um')
+        if not -10031098 <= sample.y_um <= 10031098:
+            raise ValueError('Invalid y_um')
+        if not -10031098 <= sample.z_um <= 10031098:
+            raise ValueError('Invalid z_um')
+        return sample
+
+    def initialize_mecanum_platform_oriented(self, is_reversed_0: bool, is_reversed_1: bool, is_reversed_2: bool, is_reversed_3: bool, is_encoder_reversed_0: bool, is_encoder_reversed_1: bool, is_encoder_reversed_2: bool, is_encoder_reversed_3: bool, length: float, width: float, wheels_diameter: float, encoder_resolution: float, roller_orientation: int) -> None:
+        """Initialize four mecanum wheels with an explicit 45-degree roller layout. Requires
+        protocol 2.25 and a READY session. Motor/encoder indices 0, 1, 2, 3 are front right,
+        rear right, rear left, front left. Length and width are positive front-to-rear and
+        side-to-side wheel-center spacings in meters. STANDARD uses yaw lever (width +
+        length)/2. MIRRORED uses (width - length)/2 and requires unequal spacings. Invalid
+        orientation or geometry leaves the running setup unchanged.
+
+        is_reversed_0: Determines if motor 0 is reversed.
+        is_reversed_1: Determines if motor 1 is reversed.
+        is_reversed_2: Determines if motor 2 is reversed.
+        is_reversed_3: Determines if motor 3 is reversed.
+        is_encoder_reversed_0: Reverses encoder 0 counting direction, independently of motor
+        0's is_reversed_0. Set so the closed-loop feedback is negative (flip if the wheel
+        runs away when given a target speed).
+        is_encoder_reversed_1: Reverses encoder 1 counting direction, independently of motor
+        1's is_reversed_1. Set so the closed-loop feedback is negative (flip if the wheel
+        runs away when given a target speed).
+        is_encoder_reversed_2: Reverses encoder 2 counting direction, independently of motor
+        2's is_reversed_2. Set so the closed-loop feedback is negative (flip if the wheel
+        runs away when given a target speed).
+        is_encoder_reversed_3: Reverses encoder 3 counting direction, independently of motor
+        3's is_reversed_3. Set so the closed-loop feedback is negative (flip if the wheel
+        runs away when given a target speed).
+        length: Length of the platform in meters.
+        width: Width of the platform in meters.
+        wheels_diameter: Diameter of the robot wheels in meters.
+        encoder_resolution: Encoder resolution in ticks per revolution. The value can not be
+        negative. If platform does not have encoders, the value should be set to zero.
+        roller_orientation: 0 STANDARD (legacy), 1 MIRRORED (all four roller slopes
+        reversed). Independent of each motor and encoder reversal.
+
+        Controller errors: DRIVERS_ASLEEP, BOARD_IDLE, INVALID_LENGTH, INVALID_ARGUMENT,
+        INTERNAL_ERROR, INIT_REQUIRED, CLOCK_NOT_READY.
+        """
+        if isinstance(roller_orientation, bool) or not isinstance(roller_orientation, int) or roller_orientation not in tuple(MecanumRollerOrientation):
+            raise ValueError('Invalid mecanum roller orientation')
+        payload = struct.pack('<????????ddddB', is_reversed_0, is_reversed_1, is_reversed_2, is_reversed_3, is_encoder_reversed_0, is_encoder_reversed_1, is_encoder_reversed_2, is_encoder_reversed_3, length, width, wheels_diameter, encoder_resolution, roller_orientation)
+        result = self._request(INITIALIZE_MECANUM_PLATFORM_ORIENTED, payload, 0)
+
+    def initialize_omni_platform_oriented(self, is_reversed_0: bool, is_reversed_1: bool, is_reversed_2: bool, is_encoder_reversed_0: bool, is_encoder_reversed_1: bool, is_encoder_reversed_2: bool, wheels_diameter: float, robot_radius: float, encoder_resolution: float, wheel_orientation: int) -> None:
+        """Initialize a 120-degree, three-wheel Omni platform in the marked chassis frame (+X
+        forward, +Y left, positive yaw counterclockwise). Requires READY and protocol 2.26.
+        REAR places W0 front right, W1 front left and W2 rear. FRONT rotates the complete
+        triangle 180 degrees: W0 rear left, W1 rear right and W2 front. Motor and encoder
+        indices stay attached to those wheels, with independent reversal flags. Dimensions
+        must be positive and encoder resolution nonnegative. Invalid requests leave the
+        running setup unchanged.
+
+        is_reversed_0: Determines if motor 0 is reversed.
+        is_reversed_1: Determines if motor 1 is reversed.
+        is_reversed_2: Determines if motor 2 is reversed.
+        is_encoder_reversed_0: Reverses encoder 0 counting direction, independently of motor
+        0's is_reversed_0. Set so the closed-loop feedback is negative (flip if the wheel
+        runs away when given a target speed).
+        is_encoder_reversed_1: Reverses encoder 1 counting direction, independently of motor
+        1's is_reversed_1. Set so the closed-loop feedback is negative (flip if the wheel
+        runs away when given a target speed).
+        is_encoder_reversed_2: Reverses encoder 2 counting direction, independently of motor
+        2's is_reversed_2. Set so the closed-loop feedback is negative (flip if the wheel
+        runs away when given a target speed).
+        wheels_diameter: Diameter of the robot wheels in meters.
+        robot_radius: Distance from the robot center to each wheel center in meters.
+        encoder_resolution: Encoder resolution in ticks per revolution. The value can not be
+        negative. If platform does not have encoders, the value should be set to zero.
+        wheel_orientation: Position of single wheel W2: REAR (0) or FRONT (1).
+
+        Controller errors: DRIVERS_ASLEEP, INVALID_LENGTH, INVALID_ARGUMENT, INTERNAL_ERROR,
+        INIT_REQUIRED, CLOCK_NOT_READY.
+        """
+        if isinstance(wheel_orientation, bool) or not isinstance(wheel_orientation, int) or wheel_orientation not in tuple(OmniWheelOrientation):
+            raise ValueError('Invalid omni wheel orientation')
+        payload = struct.pack('<??????dddB', is_reversed_0, is_reversed_1, is_reversed_2, is_encoder_reversed_0, is_encoder_reversed_1, is_encoder_reversed_2, wheels_diameter, robot_radius, encoder_resolution, wheel_orientation)
+        result = self._request(INITIALIZE_OMNI_PLATFORM_ORIENTED, payload, 0)
 

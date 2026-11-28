@@ -1,6 +1,6 @@
 # Messages API v2
 
-pykinisi includes messages API **2.11.0** and connects to firmware **2.1+** within
+pykinisi includes messages API **2.26.0** and connects to firmware **2.1+** within
 protocol major 2, gating newer commands separately. API 1.x firmware and clients are
 incompatible with the new framing and responses; update firmware and the SDK
 together. Existing motor and GPIO method arguments remain the same. Methods
@@ -14,6 +14,38 @@ versions provide compatible fixes and do not block connection. An incompatible
 replacement command needs a new ID while retaining the original, or a major
 version bump. Protocol versions are independent of board revisions and SDK
 package versions. INIT does not translate between protocol majors.
+
+## Three-wheel Omni layout
+
+`initialize_omni_platform(...)` configures the original triangle with W2 at the rear. Protocol 2.26 adds a layout parameter to the same six reversal flags, wheel diameter, robot radius and encoder resolution. For the front layout, turn the entire triangle 180° in the robot frame. W2 is at the front, W0 at rear left and W1 at rear right. Connect W0–W2 to the matching motor and encoder ports. Set polarity independently for each wheel.
+
+```python
+from pykinisi import OmniWheelOrientation
+
+controller.initialize_omni_platform_oriented(
+    False, False, False, False, False, False,
+    0.10, 0.17, 4096, OmniWheelOrientation.FRONT,
+)
+layout = controller.get_omni_wheel_orientation()
+```
+
+The serial requests are 34 bytes for the original initializer and 35 bytes for the oriented one. Readback queries configuration field 8, index 0 after READY. On earlier firmware the SDK reports the sole supported layout, `REAR`, without sending a query. Use the original initializer for those boards.
+
+## Four-wheel mecanum layout
+
+The existing `initialize_mecanum_platform(...)` selects the standard roller arrangement. Protocol 2.25 adds an explicit layout to the same motor and encoder reversal flags, wheel-center spacings, wheel diameter and encoder resolution. Indices 0–3 correspond to front right, rear right, rear left and front left viewed from above. Dimensions are in metres. The mirrored arrangement requires unequal width and length to control yaw.
+
+```python
+from pykinisi import MecanumRollerOrientation
+
+controller.initialize_mecanum_platform_oriented(
+    False, False, False, False, False, False, False, False,
+    0.34, 0.26, 0.10, 4096, MecanumRollerOrientation.MIRRORED,
+)
+layout = controller.get_mecanum_roller_orientation()
+```
+
+After READY, readback queries configuration field 7, index 0 on protocol 2.25+. Earlier firmware supports only `STANDARD`, which the SDK returns locally. Use the original initializer on those versions. The serial transport carries the 44-byte original and 45-byte oriented requests.
 
 ## Connect and identify the board
 
@@ -297,7 +329,8 @@ The default is available as `pwm_frequency.default_hz`.
 Applying a frequency stops every motor and motor/platform controller and leaves
 them stopped. It preserves duty-cycle resolution, motor direction configuration,
 and driver current-limit settings. Restart motion explicitly. The selected frequency
-survives motor initialization and disconnect/reconnect; reboot restores the default.
+survives motor initialization and reconnects. At boot, v0.4 restores an explicitly
+saved frequency when a valid setup exists. Otherwise the board uses its default.
 GET reads the board's active frequency selection without changing outputs.
 Unsupported values are rejected; they are never silently rounded.
 
@@ -312,3 +345,182 @@ if controller.supports_pwm_frequency():
 
 Unknown boards have no advertised options; explicit commands on compatible firmware
 still reach the board for validation. Older firmware is rejected locally before I/O.
+
+## Save and restore the platform setup
+
+On a ready v0.4 board with protocol 2.14 or later, `supports_configuration_save()`
+reports whether configuration storage is available. Initialize the platform and
+apply the desired encoder settings, directions and PWM frequency. Calling
+`save_configuration()` returns normally after the firmware acknowledges a durable write. An unsupported session raises `ProtocolError`, and a device-reported failure raises `ControllerError`.
+
+After restart, connect and read the running setup before sending another
+platform initialization. `get_configuration_field(field, index)` reads the
+platform type (0), wheel diameter (1), track or length (2), width or radius
+(3), encoder resolution (4), encoder direction (5), or motor direction (6).
+Use index zero for platform fields and the channel index for encoder and
+motor fields. `get_pwm_frequency()` reads the applied frequency in hertz.
+The board restores the saved setup with outputs stopped. Reconnecting during
+the same boot preserves running edits. Call Save again to retain those edits
+across the next restart.
+
+## Motor-driver sleep
+
+`supports_driver_sleep()` requires READY, protocol major version 2, and an exact
+known board profile with `power.driver_sleep` enabled. Original v0.3.0 and Nano
+(hardware v0.3.1) require protocol 2.17 or later; v0.4.0 requires 2.15 or later.
+Both commands reject unsupported sessions before I/O, including unknown patch
+revisions. Nano's product name does not change its wire identity: model 1, 0.3.1.
+
+```python
+if controller.supports_driver_sleep():
+    controller.set_driver_sleep(1)  # Wait for the board's ACK.
+    sleeping = controller.get_driver_sleep()  # Integer 0 or 1.
+    controller.set_driver_sleep(0)  # Explicitly release inhibit; wait for ACK.
+```
+
+The setter accepts integer 0 or 1. Sleep stops and coasts all motors, cancels
+active control, and inhibits new drive requests while communication remains
+available. `get_driver_sleep()` reads the board-wide inhibit shared by all
+clients; zero does not imply that every individual motor is initialized.
+On v0.3/Nano, sleep holds both DRV8870 inputs low. Releasing the software
+inhibit keeps those inputs low until a fresh nonzero drive request or deliberate
+brake, so a zero readback does not establish that the chips are physically awake.
+After confirmed inhibit release, a fresh `brake_motor()` or `brake_platform()`
+request is valid without a preceding drive request, subject to the command's
+normal initialization requirements. Ordinary short brake drives both inputs
+high; stop/coast leaves both low. Brake requests made while inhibited, or stale
+requests from before the inhibit transition, are rejected.
+These boards have no SPI wake verification, current telemetry or fault readback.
+Their separate board-idle API requires protocol 2.18 or later.
+On v0.4, wake verifies retained settings for initialized drivers.
+Wake leaves outputs stopped. Initialize or start closed-loop control again
+before issuing new targets. Prohibited operations raise `ControllerError` with
+`ErrorCode.DRIVERS_ASLEEP` (19). A failed wake raises a device error and leaves
+the inhibit set; correct the cause and explicitly retry.
+A stale wake superseded by a newer sleep also raises `DRIVERS_ASLEEP`; read the
+current inhibit and explicitly retry only if release is still wanted.
+
+Sleep is volatile and is not saved to FRAM. Reconnecting preserves its current
+state and sends no automatic sleep or wake command. Reset clears the inhibit
+and follows the board's normal boot and saved-configuration policy.
+
+## Communication-preserving board idle
+
+`supports_board_idle()` requires READY, protocol major version 2 and the exact
+board profile's `power.board_idle` capability. Original v0.3.0 and Nano v0.3.1
+require protocol 2.18 or later; v0.4.0 requires 2.16 or later. Older firmware
+and unknown revisions fail locally before I/O. Driver-only sleep remains
+available on v0.3/Nano at protocol 2.17 and v0.4 at protocol 2.15.
+
+```python
+if controller.supports_board_idle():
+    controller.set_board_idle(1)  # Integer 0 or 1; wait for the board ACK.
+    idle = controller.get_board_idle()  # Integer 0 or 1.
+    controller.set_board_idle(0)  # Explicit wake; never resumes motion targets.
+```
+
+This is shallow idle with communication running, not MCU STOP or STANDBY.
+Entry stops control, inhibits the drivers, and pauses existing subscriptions.
+Heartbeat, time sync and supported direct reads remain available. New
+subscriptions and independent driver-sleep changes raise `ControllerError` with
+`ErrorCode.BOARD_IDLE` (20). Motion requests return `DRIVERS_ASLEEP` (19).
+Use the ordinary setter and getter on the same USB serial connection to enter,
+read and leave idle; no disconnect, reopen or initialization is needed.
+The session stays connected. Existing
+subscription handles remain active while their measurements are paused.
+
+Wake preserves an independent driver-sleep request that was active on entry.
+Otherwise it clears the idle-imposed inhibit and leaves outputs stopped.
+v0.4 verifies initialized driver settings over SPI. On v0.3/Nano, both DRV8870
+inputs remain low until a fresh nonzero drive or explicit short-brake request;
+successful wake acknowledges the software state, not physical chip wake.
+Read `get_driver_sleep()` separately; it reports the effective inhibit, including
+board idle, and cannot reveal the prior independent sleep request while idle.
+Waking the board does not necessarily wake its drivers. A failed transition raises a device error and keeps idle and
+motion inhibition active for an explicit retry. The SDK sends no extra driver,
+initialization, controller-start, or motion commands around idle transitions.
+Reconnect does not wake the board. Idle is volatile and clears on reset.
+
+`get_subscription_sample()` retains the last sample and its original
+`timestamp_us` through idle and wake. Callback consumers may likewise retain an
+old sample, and callbacks already queued before entry may still run. Neither a
+cached value, an active subscription handle, nor a successful wake proves that
+a fresh measurement has arrived. Track sample timestamps in their clock domain
+and wait for a new post-wake sample before using streamed data as current.
+Existing streams resume without resubscribing; a direct read is a separate
+request and does not refresh the subscription cache.
+
+## Encoder and IMU experiment
+
+Exact v0.4.0 boards with protocol 2.19 can opt into the volatile comparison
+experiment. Legacy encoder control remains the default. See [mounting, health,
+compact diagnostics and examples](fusion-experiment.md).
+
+## IMU-only relative tracking
+
+See [IMU-only relative tracking](imu-tracking.md) for the protocol 2.20 opt-in,
+stationary calibration, bounded horizon and diagnostics. Protocol 2.24 provides a
+[board-center mounting configuration](imu-mounting.md) for rotated and displaced boards.
+
+## Tracking source selector
+
+A ready model 1 board with hardware 0.4.0 and protocol 2.21+ can report encoder,
+IMU-only or passive fused tracking. Encoder is the default. Call
+`set_feedback_source(source)` only while stopped and disarmed, with the motors
+coasting and a quiet encoder observation. `SOURCE_SWITCH_UNSAFE` leaves the previous
+preference in place. Selection never starts a producer, commands motion or enables
+a control loop. Prepare the required producer explicitly.
+
+- Encoder and passive fused tracking require initialized platform odometry.
+- The passive observer requires mounting geometry. Use the shared physical mount
+  on protocol 2.24+. With legacy yaw-only setup, declare a centered, level board
+  with +Z up using `set_feedback_fusion_mount(yaw)`. Yaw is the angle of board
+  +X in chassis XY, counterclockwise about chassis +Z, in radians. The legacy
+  declaration is volatile. Read `get_feedback_fusion_mount()` to check it.
+- IMU-only tracking requires the stationary mounting declaration and cold calibration
+  described above. Its one-second diagnostic window begins at the producer origin.
+  Re-selecting a source does not extend the window.
+
+The board reports `requested`, `active`, `valid`, `reason` and the native
+`source_detail`. Loss or expiry gives active NONE. Discard old estimates on source
+loss, a change in `origin_id`, or reconnect. Pose uses metres and continuous radians
+relative to the selector origin. Twist uses chassis forward/left metres per second
+and counterclockwise radians per second. The producer supplies `sequence` and the
+board-monotonic acquisition `timestamp_us`. Raw status reports `age_us` at capture.
+The snapshot helper returns the original sequence, timestamp and vectors, with
+the original sample's age calculated at the confirming status read from the two
+board timestamps and the board-reported age. `UINT32_MAX` means unavailable.
+
+When using raw commands, capture status first and pass its `origin_id` and
+`sequence` to both `get_feedback_source_vector(kind, origin_id, sequence)` calls.
+Confirm the same healthy source and origin with a final status read. Normal
+publication advances may occur between requests. The board retains eight distinct
+captures for up to 50 ms and rechecks producer eligibility for both vector reads.
+Compare the original sample's current age with the smaller `max_age_ms` from
+the two status reads, converting milliseconds to microseconds. An encoder's
+source-age limit is three configured odometry periods. Read current status after
+reconnect.
+
+Only explicit `save_configuration()` persists the requested preference with the
+rest of the running setup. Reboot requires a fresh mount or calibration as applicable.
+Restored preference is observable in selector status after reboot. Tracking data,
+origin and controller targets are volatile.
+
+Use `controller.read_feedback_source_snapshot()` for a verified status, pose and
+twist. An invalid status returns `None` vectors. Three successive mismatched
+observations raise `ProtocolError`. A failed write requires explicit readback
+before deciding whether to retry.
+
+## Feedback source health
+
+On a READY model 1 v0.4.0 board running protocol 2.22 or later in the 2.x series, read the encoder batch, physical BMI088 pair, or passive fused estimate by source. Each read returns the board's current health, reason, native fusion fault detail, flags, sequence, acquisition timestamp, age and maximum age. Reads work independently of the selected source and leave the motion state untouched. The physical BMI088 may remain healthy after the separate finite IMU tracking estimate expires.
+
+```python
+if controller.supports_feedback_source_health():
+    imu = controller.get_feedback_source_health(FeedbackSource.IMU_ONLY)
+    channels = controller.get_feedback_imu_channels()
+```
+
+Timestamps and ages use board-clock microseconds. A source can retain its last timestamp and sequence during an outage. An unseen source reports zero timestamp and sequence with age `UINT32_MAX`. The separate channel read gives the latest accelerometer and gyro timestamps and ages, including one-sided outages. A usable BMI088 pair must meet the 35,000 µs age and 15,000 µs skew limits.
+
+Read health and flags together. `FRESH` describes the represented sample's age. `COMPARISON_AVAILABLE` indicates whether the producers can be compared. `DISAGREEMENT` identifies conflicting measurements without assigning blame. A subsequent read returns the board's recovery state and updated provenance.
